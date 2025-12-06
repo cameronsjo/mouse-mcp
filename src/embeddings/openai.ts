@@ -4,11 +4,7 @@
  * Uses text-embedding-3-small for high-quality embeddings.
  */
 
-import type {
-  EmbeddingProvider,
-  EmbeddingResult,
-  BatchEmbeddingResult,
-} from "./types.js";
+import type { EmbeddingProvider, EmbeddingResult, BatchEmbeddingResult } from "./types.js";
 import { createLogger } from "../shared/logger.js";
 
 const logger = createLogger("OpenAIEmbeddings");

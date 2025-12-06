@@ -1,23 +1,20 @@
 /**
  * Semantic Vector Search
  *
- * Performs vector similarity search over entity embeddings.
+ * Performs vector similarity search using LanceDB.
  */
 
-import type {
-  DisneyEntity,
-  DestinationId,
-  EntityType,
-} from "../types/index.js";
+import type { DisneyEntity, DestinationId, EntityType } from "../types/index.js";
 import { getEmbeddingProvider } from "./index.js";
 import {
-  getAllEmbeddings,
+  vectorSearch,
   saveEmbedding,
+  saveEmbeddingsBatch,
   isEmbeddingStale,
-} from "../db/embeddings.js";
+  type EmbeddingRecord,
+} from "../vectordb/index.js";
 import { getEntityById } from "../db/entities.js";
 import { buildEmbeddingText, hashEmbeddingText } from "./text-builder.js";
-import { topKSimilar, normalizeScore } from "./similarity.js";
 import { createLogger } from "../shared/logger.js";
 
 const logger = createLogger("SemanticSearch");
@@ -32,16 +29,27 @@ export interface SemanticSearchOptions {
 export interface SemanticSearchResult<T extends DisneyEntity> {
   readonly entity: T;
   readonly score: number;
-  readonly similarity: number;
+  readonly distance: number;
 }
 
 /**
- * Perform semantic search over entities.
+ * Convert LanceDB distance to similarity score.
+ * LanceDB uses L2 distance by default (lower = more similar).
+ * We convert to a 0-1 score where 1 = most similar.
+ */
+function distanceToScore(distance: number): number {
+  // L2 distance of 0 = identical, grows unbounded
+  // Convert to 0-1 score using exponential decay
+  return Math.exp(-distance);
+}
+
+/**
+ * Perform semantic search over entities using LanceDB.
  */
 export async function semanticSearch<T extends DisneyEntity>(
   query: string,
   options: SemanticSearchOptions = {}
-): Promise<SemanticSearchResult<T>[]> {
+): Promise<Array<SemanticSearchResult<T>>> {
   const { limit = 10, minScore = 0.3 } = options;
 
   logger.debug("Semantic search", { query, options });
@@ -53,49 +61,34 @@ export async function semanticSearch<T extends DisneyEntity>(
   const queryResult = await provider.embed(query);
   const queryVector = queryResult.embedding;
 
-  // Get all embeddings (filtering happens after similarity calculation)
-  const allEmbeddings = await getAllEmbeddings(provider.fullModelName);
+  // Search LanceDB with filters
+  const searchResults = await vectorSearch(queryVector, provider.fullModelName, {
+    limit: limit * 2, // Get extra to filter by score
+    entityType: options.entityType,
+    destinationId: options.destinationId,
+  });
 
-  if (allEmbeddings.length === 0) {
+  if (searchResults.length === 0) {
     logger.debug("No embeddings found, returning empty results");
     return [];
   }
 
-  // Build vectors array for similarity calculation
-  const vectors = allEmbeddings.map((e) => e.embedding);
-  const entityIds = allEmbeddings.map((e) => e.entityId);
+  // Load entities and filter by score
+  const results: Array<SemanticSearchResult<T>> = [];
 
-  // Find top matches (get more than limit to allow for filtering)
-  const topMatches = topKSimilar(queryVector, vectors, limit * 3);
-
-  // Load entities and filter
-  const results: SemanticSearchResult<T>[] = [];
-
-  for (const match of topMatches) {
+  for (const match of searchResults) {
     if (results.length >= limit) break;
 
-    const entityId = entityIds[match.index];
-    if (!entityId) continue;
+    const score = distanceToScore(match._distance);
+    if (score < minScore) continue;
 
-    const entity = await getEntityById<T>(entityId);
+    const entity = await getEntityById<T>(match.id);
     if (!entity) continue;
-
-    // Apply filters
-    if (options.destinationId && entity.destinationId !== options.destinationId) {
-      continue;
-    }
-    if (options.entityType && entity.entityType !== options.entityType) {
-      continue;
-    }
-
-    // Calculate normalized score
-    const score = normalizeScore(match.similarity, minScore);
-    if (score <= 0) continue;
 
     results.push({
       entity,
       score,
-      similarity: match.similarity,
+      distance: match._distance,
     });
   }
 
@@ -113,38 +106,42 @@ export async function semanticSearch<T extends DisneyEntity>(
  * Generates embedding if missing or stale.
  */
 export async function ensureEmbedding(entity: DisneyEntity): Promise<void> {
+  const provider = await getEmbeddingProvider();
   const text = buildEmbeddingText(entity);
   const hash = hashEmbeddingText(text);
 
   // Check if embedding exists and is current
-  if (!(await isEmbeddingStale(entity.id, hash))) {
+  if (!(await isEmbeddingStale(entity.id, provider.fullModelName, hash))) {
     return; // Embedding is current
   }
 
   logger.debug("Generating embedding for entity", {
     id: entity.id,
     name: entity.name,
+    model: provider.fullModelName,
   });
 
-  const provider = await getEmbeddingProvider();
   const result = await provider.embed(text);
 
-  await saveEmbedding(
-    entity.id,
-    result.embedding,
-    result.model,
-    result.dimension,
-    hash
-  );
+  const record: EmbeddingRecord = {
+    id: entity.id,
+    model: result.model,
+    vector: result.embedding,
+    textHash: hash,
+    entityType: entity.entityType,
+    destinationId: entity.destinationId,
+    name: entity.name,
+    createdAt: new Date().toISOString(),
+  };
+
+  await saveEmbedding(record);
 }
 
 /**
  * Generate embeddings for multiple entities (batch).
  * More efficient than individual calls for bulk operations.
  */
-export async function ensureEmbeddingsBatch(
-  entities: DisneyEntity[]
-): Promise<number> {
+export async function ensureEmbeddingsBatch(entities: DisneyEntity[]): Promise<number> {
   const provider = await getEmbeddingProvider();
   let generated = 0;
 
@@ -159,7 +156,7 @@ export async function ensureEmbeddingsBatch(
     const text = buildEmbeddingText(entity);
     const hash = hashEmbeddingText(text);
 
-    if (await isEmbeddingStale(entity.id, hash)) {
+    if (await isEmbeddingStale(entity.id, provider.fullModelName, hash)) {
       needsEmbedding.push({ entity, text, hash });
     }
   }
@@ -168,7 +165,10 @@ export async function ensureEmbeddingsBatch(
     return 0;
   }
 
-  logger.info("Generating embeddings batch", { count: needsEmbedding.length });
+  logger.info("Generating embeddings batch", {
+    count: needsEmbedding.length,
+    model: provider.fullModelName,
+  });
 
   // Process in batches to avoid memory issues
   const BATCH_SIZE = 50;
@@ -179,20 +179,28 @@ export async function ensureEmbeddingsBatch(
 
     const results = await provider.embedBatch(texts);
 
+    const records: EmbeddingRecord[] = [];
+
     for (let j = 0; j < batch.length; j++) {
       const item = batch[j]!;
       const result = results.embeddings[j];
       if (!result) continue;
 
-      await saveEmbedding(
-        item.entity.id,
-        result.embedding,
-        result.model,
-        result.dimension,
-        item.hash
-      );
+      records.push({
+        id: item.entity.id,
+        model: result.model,
+        vector: result.embedding,
+        textHash: item.hash,
+        entityType: item.entity.entityType,
+        destinationId: item.entity.destinationId,
+        name: item.entity.name,
+        createdAt: new Date().toISOString(),
+      });
+
       generated++;
     }
+
+    await saveEmbeddingsBatch(records);
   }
 
   logger.info("Embeddings batch complete", { generated });

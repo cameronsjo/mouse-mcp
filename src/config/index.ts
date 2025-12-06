@@ -5,8 +5,8 @@
  * All environment variables are prefixed with MOUSE_MCP_.
  */
 
-import { homedir } from "node:os";
-import { join } from "node:path";
+import { join, dirname } from "node:path";
+import { fileURLToPath } from "node:url";
 
 export type LogLevel = "DEBUG" | "INFO" | "WARN" | "ERROR";
 
@@ -18,7 +18,8 @@ export interface Config {
   readonly dbPath: string;
   readonly refreshBufferMinutes: number;
   readonly timeoutMs: number;
-  readonly headless: boolean;
+  /** Show browser window during Playwright sessions (useful for debugging) */
+  readonly showBrowser: boolean;
   /** Embedding provider selection */
   readonly embeddingProvider: EmbeddingProviderType;
   /** OpenAI API key for embeddings (optional) */
@@ -36,22 +37,23 @@ export function getConfig(): Config {
     return cachedConfig;
   }
 
-  const nodeEnv = (process.env["NODE_ENV"] ?? "development") as Config["nodeEnv"];
+  const nodeEnv = (process.env.NODE_ENV ?? "development") as Config["nodeEnv"];
 
-  // Default database path: ~/.cache/mouse-mcp/disney.db
-  const defaultDbPath = join(homedir(), ".cache", "mouse-mcp", "disney.db");
+  // Default database path: .data/disney.db (project-local)
+  const projectRoot = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
+  const defaultDbPath = join(projectRoot, ".data", "disney.db");
 
   cachedConfig = {
     nodeEnv,
-    logLevel: parseLogLevel(process.env["MOUSE_MCP_LOG_LEVEL"], nodeEnv),
-    dbPath: process.env["MOUSE_MCP_DB_PATH"] ?? defaultDbPath,
+    logLevel: parseLogLevel(process.env.MOUSE_MCP_LOG_LEVEL, nodeEnv),
+    dbPath: process.env.MOUSE_MCP_DB_PATH ?? defaultDbPath,
     // Daily refresh - check once per day
-    refreshBufferMinutes: parseInt(process.env["MOUSE_MCP_REFRESH_BUFFER"] ?? "60", 10),
-    timeoutMs: parseInt(process.env["MOUSE_MCP_TIMEOUT"] ?? "30000", 10),
-    headless: process.env["MOUSE_MCP_HEADLESS"] !== "false",
+    refreshBufferMinutes: parseInt(process.env.MOUSE_MCP_REFRESH_BUFFER ?? "60", 10),
+    timeoutMs: parseInt(process.env.MOUSE_MCP_TIMEOUT ?? "30000", 10),
+    showBrowser: process.env.MOUSE_MCP_SHOW_BROWSER === "true",
     // Embedding configuration
-    embeddingProvider: parseEmbeddingProvider(process.env["MOUSE_MCP_EMBEDDING_PROVIDER"]),
-    openaiApiKey: process.env["OPENAI_API_KEY"],
+    embeddingProvider: parseEmbeddingProvider(process.env.MOUSE_MCP_EMBEDDING_PROVIDER),
+    openaiApiKey: process.env.OPENAI_API_KEY,
   };
 
   return cachedConfig;

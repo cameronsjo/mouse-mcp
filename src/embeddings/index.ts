@@ -7,6 +7,7 @@
 
 import type { EmbeddingProvider, EmbeddingConfig } from "./types.js";
 import { createLogger } from "../shared/logger.js";
+import { getConfig } from "../config/index.js";
 import { OpenAIEmbeddingProvider } from "./openai.js";
 import { TransformersEmbeddingProvider } from "./transformers.js";
 
@@ -25,8 +26,9 @@ export async function getEmbeddingProvider(
     return cachedProvider;
   }
 
-  const provider = config?.provider ?? "auto";
-  const openaiKey = config?.openaiApiKey ?? process.env["OPENAI_API_KEY"];
+  const appConfig = getConfig();
+  const provider = config?.provider ?? appConfig.embeddingProvider ?? "auto";
+  const openaiKey = config?.openaiApiKey ?? appConfig.openaiApiKey;
 
   // Explicit provider selection
   if (provider === "openai") {
@@ -50,10 +52,7 @@ export async function getEmbeddingProvider(
 
   // Auto mode: prefer OpenAI if available, fallback to Transformers.js
   if (openaiKey) {
-    const openaiProvider = new OpenAIEmbeddingProvider(
-      openaiKey,
-      config?.openaiModel
-    );
+    const openaiProvider = new OpenAIEmbeddingProvider(openaiKey, config?.openaiModel);
     if (await openaiProvider.isAvailable()) {
       cachedProvider = openaiProvider;
       logger.info("Auto-selected OpenAI embedding provider", {

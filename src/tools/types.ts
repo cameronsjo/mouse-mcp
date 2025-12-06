@@ -25,9 +25,7 @@ export interface ToolResult {
 }
 
 /** Tool handler function signature */
-export type ToolHandler = (
-  args: Record<string, unknown>
-) => Promise<ToolResult>;
+export type ToolHandler = (args: Record<string, unknown>) => Promise<ToolResult>;
 
 /** Tool registration entry */
 export interface ToolEntry {

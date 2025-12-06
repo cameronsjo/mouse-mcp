@@ -9,11 +9,7 @@ export class DisneyMcpError extends Error {
   readonly code: string;
   readonly details?: Record<string, unknown>;
 
-  constructor(
-    message: string,
-    code: string,
-    details?: Record<string, unknown>
-  ) {
+  constructor(message: string, code: string, details?: Record<string, unknown>) {
     super(message);
     this.name = "DisneyMcpError";
     this.code = code;

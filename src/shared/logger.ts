@@ -1,9 +1,13 @@
 /**
  * Structured Logger
  *
- * Simple structured logging to stderr (MCP servers must not write to stdout).
+ * Dual output: stderr for MCP compatibility + file logging for debugging.
+ * Log files are written to .logs/ directory with daily rotation.
  */
 
+import { appendFileSync, mkdirSync, existsSync } from "node:fs";
+import { join, dirname } from "node:path";
+import { fileURLToPath } from "node:url";
 import { getConfig, type LogLevel } from "../config/index.js";
 
 const LOG_LEVELS: Record<LogLevel, number> = {
@@ -13,8 +17,48 @@ const LOG_LEVELS: Record<LogLevel, number> = {
   ERROR: 3,
 };
 
-export interface LogContext {
-  [key: string]: unknown;
+export type LogContext = Record<string, unknown>;
+
+/** Get the project root directory */
+function getProjectRoot(): string {
+  const currentFile = fileURLToPath(import.meta.url);
+  // Go up from src/shared/logger.ts to project root
+  return join(dirname(currentFile), "..", "..");
+}
+
+/** Get the log file path for today */
+function getLogFilePath(): string {
+  const logsDir = join(getProjectRoot(), ".logs");
+
+  // Ensure logs directory exists
+  if (!existsSync(logsDir)) {
+    mkdirSync(logsDir, { recursive: true });
+  }
+
+  const today = new Date().toISOString().split("T")[0]; // YYYY-MM-DD
+  return join(logsDir, `mouse-mcp-${today}.log`);
+}
+
+/** Write to log file (fire-and-forget) */
+function writeToFile(entry: string): void {
+  try {
+    const logPath = getLogFilePath();
+    appendFileSync(logPath, entry + "\n");
+  } catch {
+    // Silently fail file writes - don't break the server
+  }
+}
+
+/** Format log entry for human-readable file output */
+function formatLogEntry(
+  timestamp: string,
+  level: LogLevel,
+  context: string,
+  message: string,
+  data?: LogContext
+): string {
+  const dataStr = data && Object.keys(data).length > 0 ? ` ${JSON.stringify(data)}` : "";
+  return `[${timestamp}] ${level.padEnd(5)} [${context}] ${message}${dataStr}`;
 }
 
 export class Logger {
@@ -42,13 +86,13 @@ export class Logger {
     const errorData: LogContext = { ...data };
 
     if (error instanceof Error) {
-      errorData["error"] = {
+      errorData.error = {
         name: error.name,
         message: error.message,
         stack: error.stack,
       };
     } else if (error !== undefined) {
-      errorData["error"] = String(error);
+      errorData.error = String(error);
     }
 
     this.log("ERROR", message, errorData);
@@ -59,16 +103,21 @@ export class Logger {
       return;
     }
 
+    const timestamp = new Date().toISOString();
+
     const entry = {
-      timestamp: new Date().toISOString(),
+      timestamp,
       level,
       context: this.context,
       message,
       ...(data && Object.keys(data).length > 0 ? { data } : {}),
     };
 
-    // Write to stderr (MCP protocol uses stdout)
+    // Write JSON to stderr (MCP protocol uses stdout)
     process.stderr.write(JSON.stringify(entry) + "\n");
+
+    // Write human-readable format to log file
+    writeToFile(formatLogEntry(timestamp, level, this.context, message, data));
   }
 }
 

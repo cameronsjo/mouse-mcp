@@ -45,9 +45,7 @@ export async function saveEmbedding(
 /**
  * Get embedding for an entity.
  */
-export async function getEmbedding(
-  entityId: string
-): Promise<StoredEmbedding | null> {
+export async function getEmbedding(entityId: string): Promise<StoredEmbedding | null> {
   const db = await getDatabase();
 
   const result = db.exec(
@@ -78,9 +76,7 @@ export async function getEmbedding(
  * Get all embeddings for a model type.
  * Used for vector search across all entities.
  */
-export async function getAllEmbeddings(
-  modelFilter?: string
-): Promise<StoredEmbedding[]> {
+export async function getAllEmbeddings(modelFilter?: string): Promise<StoredEmbedding[]> {
   const db = await getDatabase();
 
   let sql = `SELECT entity_id, embedding, embedding_model, embedding_dim, input_text_hash, created_at
@@ -127,10 +123,7 @@ export async function deleteEmbedding(entityId: string): Promise<void> {
 /**
  * Check if embedding is stale (input text changed).
  */
-export async function isEmbeddingStale(
-  entityId: string,
-  currentHash: string
-): Promise<boolean> {
+export async function isEmbeddingStale(entityId: string, currentHash: string): Promise<boolean> {
   const existing = await getEmbedding(entityId);
   if (!existing) {
     return true; // No embedding exists

@@ -4,7 +4,18 @@
       "WebFetch(domain:pypi.org)",
       "WebFetch(domain:api.themeparks.wiki)",
       "WebFetch(domain:codesignal.com)",
-      "WebFetch(domain:playwright.dev)"
+      "WebFetch(domain:playwright.dev)",
+      "WebFetch(domain:docs.trychroma.com)",
+      "WebFetch(domain:lancedb.github.io)",
+      "SlashCommand(/essentials:roadmap.add SQL injection fix in LanceDB - escape string interpolation in queries at lancedb.ts:116, 145, 153, 174, 221-223, 277-278)",
+      "WebFetch(domain:spec.modelcontextprotocol.io)",
+      "WebFetch(domain:blog.modelcontextprotocol.io)",
+      "SlashCommand(/essentials:roadmap.add:*)",
+      "WebFetch(domain:aaronparecki.com)",
+      "WebFetch(domain:auth0.com)",
+      "WebFetch(domain:dev.to)",
+      "WebFetch(domain:den.dev)",
+      "WebFetch(domain:www.gentoro.com)"
     ],
     "deny": [],
     "ask": []

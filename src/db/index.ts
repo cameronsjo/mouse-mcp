@@ -40,17 +40,11 @@ export {
   getAttractions,
   getDining,
   getShows,
+  getShops,
+  getEvents,
   searchEntitiesByName,
   deleteEntitiesForDestination,
   getEntityCounts,
 } from "./entities.js";
 
-export {
-  saveEmbedding,
-  getEmbedding,
-  getAllEmbeddings,
-  deleteEmbedding,
-  isEmbeddingStale,
-  getEmbeddingStats,
-  type StoredEmbedding,
-} from "./embeddings.js";
+// Note: Embeddings now stored in LanceDB (see src/vectordb/)

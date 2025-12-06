@@ -28,7 +28,7 @@ export function fuzzySearch<T extends DisneyEntity>(
   query: string,
   entities: T[],
   options: FuzzyMatchOptions = {}
-): SearchResult<T>[] {
+): Array<SearchResult<T>> {
   const opts = { ...DEFAULT_OPTIONS, ...options };
 
   const fuse = new Fuse(entities, {

@@ -25,7 +25,6 @@ import type {
   PriceRange,
 } from "../types/index.js";
 
-
 const BASE_URL = "https://api.themeparks.wiki/v1";
 
 /** ThemeParks.wiki destination UUIDs */
@@ -35,7 +34,10 @@ const DESTINATION_UUIDS: Record<DestinationId, string> = {
 };
 
 /** Destination metadata */
-const DESTINATION_INFO: Record<DestinationId, { name: string; location: string; timezone: string }> = {
+const DESTINATION_INFO: Record<
+  DestinationId,
+  { name: string; location: string; timezone: string }
+> = {
   wdw: {
     name: "Walt Disney World Resort",
     location: "Orlando, FL",
@@ -86,9 +88,7 @@ export class ThemeParksWikiClient {
    * Get all supported destinations.
    */
   async getDestinations(): Promise<DisneyDestination[]> {
-    const response = await this.fetchJson<{ destinations: WikiDestination[] }>(
-      "/destinations"
-    );
+    const response = await this.fetchJson<{ destinations: WikiDestination[] }>("/destinations");
 
     const destinations: DisneyDestination[] = [];
 
@@ -120,10 +120,7 @@ export class ThemeParksWikiClient {
   /**
    * Get attractions for a destination.
    */
-  async getAttractions(
-    destinationId: DestinationId,
-    parkId?: string
-  ): Promise<DisneyAttraction[]> {
+  async getAttractions(destinationId: DestinationId, parkId?: string): Promise<DisneyAttraction[]> {
     const destUuid = DESTINATION_UUIDS[destinationId];
     const entities = await this.getEntitiesForDestination(destUuid);
 
@@ -139,18 +136,13 @@ export class ThemeParksWikiClient {
     const parks = entities.filter((e) => e.entityType === "PARK");
     const parkMap = new Map(parks.map((p) => [p.id, p.name]));
 
-    return attractions.map((e) =>
-      this.normalizeAttraction(e, destinationId, parkMap)
-    );
+    return attractions.map((e) => this.normalizeAttraction(e, destinationId, parkMap));
   }
 
   /**
    * Get dining locations for a destination.
    */
-  async getDining(
-    destinationId: DestinationId,
-    parkId?: string
-  ): Promise<DisneyDining[]> {
+  async getDining(destinationId: DestinationId, parkId?: string): Promise<DisneyDining[]> {
     const destUuid = DESTINATION_UUIDS[destinationId];
     const entities = await this.getEntitiesForDestination(destUuid);
 
@@ -172,10 +164,7 @@ export class ThemeParksWikiClient {
   /**
    * Get shows/entertainment for a destination.
    */
-  async getShows(
-    destinationId: DestinationId,
-    parkId?: string
-  ): Promise<DisneyShow[]> {
+  async getShows(destinationId: DestinationId, parkId?: string): Promise<DisneyShow[]> {
     const destUuid = DESTINATION_UUIDS[destinationId];
     const entities = await this.getEntitiesForDestination(destUuid);
 
@@ -242,26 +231,17 @@ export class ThemeParksWikiClient {
     const results: DisneyEntity[] = [];
 
     for (const destId of destinations) {
-      if (
-        !options.entityType ||
-        options.entityType === "ATTRACTION"
-      ) {
+      if (!options.entityType || options.entityType === "ATTRACTION") {
         const attractions = await this.getAttractions(destId);
         results.push(...attractions);
       }
 
-      if (
-        !options.entityType ||
-        options.entityType === "RESTAURANT"
-      ) {
+      if (!options.entityType || options.entityType === "RESTAURANT") {
         const dining = await this.getDining(destId);
         results.push(...dining);
       }
 
-      if (
-        !options.entityType ||
-        options.entityType === "SHOW"
-      ) {
+      if (!options.entityType || options.entityType === "SHOW") {
         const shows = await this.getShows(destId);
         results.push(...shows);
       }
@@ -284,7 +264,9 @@ export class ThemeParksWikiClient {
 
     return withRetry(async () => {
       const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), this.timeoutMs);
+      const timeout = setTimeout(() => {
+        controller.abort();
+      }, this.timeoutMs);
 
       try {
         const response = await fetch(url, {
@@ -409,31 +391,34 @@ export class ThemeParksWikiClient {
     };
   }
 
-  private extractShowType(
-    tags: Map<string, string>,
-    name: string
-  ): DisneyShow["showType"] {
+  private extractShowType(tags: Map<string, string>, name: string): DisneyShow["showType"] {
     const showType = tags.get("showType")?.toLowerCase() ?? "";
     const nameLower = name.toLowerCase();
 
     // Check tags first
     if (showType.includes("firework") || nameLower.includes("firework")) return "fireworks";
     if (showType.includes("parade") || nameLower.includes("parade")) return "parade";
-    if (showType.includes("character") || showType.includes("meet") ||
-        nameLower.includes("meet") || nameLower.includes("character greeting")) {
+    if (
+      showType.includes("character") ||
+      showType.includes("meet") ||
+      nameLower.includes("meet") ||
+      nameLower.includes("character greeting")
+    ) {
       return "character-meet";
     }
-    if (showType.includes("stage") || showType.includes("theater") ||
-        nameLower.includes("show") || nameLower.includes("musical")) {
+    if (
+      showType.includes("stage") ||
+      showType.includes("theater") ||
+      nameLower.includes("show") ||
+      nameLower.includes("musical")
+    ) {
       return "stage-show";
     }
 
     return "other";
   }
 
-  private extractTags(
-    tags?: Array<{ key: string; value: string }>
-  ): Map<string, string> {
+  private extractTags(tags?: Array<{ key: string; value: string }>): Map<string, string> {
     const map = new Map<string, string>();
     if (tags) {
       for (const tag of tags) {
@@ -448,8 +433,8 @@ export class ThemeParksWikiClient {
     if (!height) return null;
 
     // Parse height string like "44 in" or "112 cm"
-    const inchMatch = height.match(/(\d+)\s*in/i);
-    if (inchMatch && inchMatch[1]) {
+    const inchMatch = /(\d+)\s*in/i.exec(height);
+    if (inchMatch?.[1]) {
       const inches = parseInt(inchMatch[1], 10);
       return {
         inches,
@@ -458,8 +443,8 @@ export class ThemeParksWikiClient {
       };
     }
 
-    const cmMatch = height.match(/(\d+)\s*cm/i);
-    if (cmMatch && cmMatch[1]) {
+    const cmMatch = /(\d+)\s*cm/i.exec(height);
+    if (cmMatch?.[1]) {
       const cm = parseInt(cmMatch[1], 10);
       return {
         inches: Math.round(cm / 2.54),

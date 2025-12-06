@@ -5,11 +5,7 @@
  * No API key required - runs entirely locally.
  */
 
-import type {
-  EmbeddingProvider,
-  EmbeddingResult,
-  BatchEmbeddingResult,
-} from "./types.js";
+import type { EmbeddingProvider, EmbeddingResult, BatchEmbeddingResult } from "./types.js";
 import { createLogger } from "../shared/logger.js";
 
 const logger = createLogger("TransformersEmbeddings");

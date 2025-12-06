@@ -9,6 +9,9 @@
  *   node dist/index.js
  */
 
+// Load environment variables from .env file
+import "dotenv/config";
+
 import { DisneyMcpServer } from "./server.js";
 import { createLogger } from "./shared/index.js";
 

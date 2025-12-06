@@ -60,10 +60,7 @@ export function topKSimilar(
  * Convert similarity score (0-1) to a normalized relevance score.
  * Applies a threshold and rescales for better UX.
  */
-export function normalizeScore(
-  similarity: number,
-  threshold: number = 0.3
-): number {
+export function normalizeScore(similarity: number, threshold = 0.3): number {
   if (similarity < threshold) {
     return 0;
   }

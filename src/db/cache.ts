@@ -114,11 +114,8 @@ export async function cachePurgeExpired(): Promise<number> {
   const now = new Date().toISOString();
 
   // Count before delete
-  const countResult = db.exec(
-    "SELECT COUNT(*) FROM cache WHERE expires_at <= ?",
-    [now]
-  );
-  const count = countResult[0]?.values[0]?.[0] as number ?? 0;
+  const countResult = db.exec("SELECT COUNT(*) FROM cache WHERE expires_at <= ?", [now]);
+  const count = (countResult[0]?.values[0]?.[0] as number) ?? 0;
 
   if (count > 0) {
     db.run("DELETE FROM cache WHERE expires_at <= ?", [now]);
@@ -136,7 +133,7 @@ export async function cacheClear(): Promise<number> {
   const db = await getDatabase();
 
   const countResult = db.exec("SELECT COUNT(*) FROM cache");
-  const count = countResult[0]?.values[0]?.[0] as number ?? 0;
+  const count = (countResult[0]?.values[0]?.[0] as number) ?? 0;
 
   db.run("DELETE FROM cache");
   persistDatabase();
@@ -159,17 +156,12 @@ export async function getCacheStats(): Promise<CacheStats> {
   const now = new Date().toISOString();
 
   const totalResult = db.exec("SELECT COUNT(*) FROM cache");
-  const total = totalResult[0]?.values[0]?.[0] as number ?? 0;
+  const total = (totalResult[0]?.values[0]?.[0] as number) ?? 0;
 
-  const expiredResult = db.exec(
-    "SELECT COUNT(*) FROM cache WHERE expires_at <= ?",
-    [now]
-  );
-  const expired = expiredResult[0]?.values[0]?.[0] as number ?? 0;
+  const expiredResult = db.exec("SELECT COUNT(*) FROM cache WHERE expires_at <= ?", [now]);
+  const expired = (expiredResult[0]?.values[0]?.[0] as number) ?? 0;
 
-  const sourcesResult = db.exec(
-    "SELECT source, COUNT(*) as count FROM cache GROUP BY source"
-  );
+  const sourcesResult = db.exec("SELECT source, COUNT(*) as count FROM cache GROUP BY source");
 
   const sources: Record<string, number> = {};
   const sourcesData = sourcesResult[0];

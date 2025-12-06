@@ -6,11 +6,7 @@
 
 import type { ToolDefinition, ToolHandler } from "./types.js";
 import { getDisneyFinderClient } from "../clients/index.js";
-import {
-  formatErrorResponse,
-  fuzzySearch,
-  ValidationError,
-} from "../shared/index.js";
+import { formatErrorResponse, fuzzySearch, ValidationError } from "../shared/index.js";
 import {
   getEntityById,
   searchEntitiesByName,
@@ -39,8 +35,7 @@ export const definition: ToolDefinition = {
       },
       name: {
         type: "string",
-        description:
-          "Entity name or query for search (e.g., 'Space Mountain', 'thrill rides')",
+        description: "Entity name or query for search (e.g., 'Space Mountain', 'thrill rides')",
       },
       destination: {
         type: "string",
@@ -64,11 +59,11 @@ export const definition: ToolDefinition = {
 };
 
 export const handler: ToolHandler = async (args) => {
-  const id = args["id"] as string | undefined;
-  const name = args["name"] as string | undefined;
-  const destination = args["destination"] as DestinationId | undefined;
-  const entityType = args["entityType"] as EntityType | undefined;
-  const searchMode = (args["searchMode"] as SearchMode | undefined) ?? "fuzzy";
+  const id = args.id as string | undefined;
+  const name = args.name as string | undefined;
+  const destination = args.destination as DestinationId | undefined;
+  const entityType = args.entityType as EntityType | undefined;
+  const searchMode = (args.searchMode as SearchMode | undefined) ?? "fuzzy";
 
   // Require either id or name
   if (!id && !name) {
@@ -131,7 +126,8 @@ export const handler: ToolHandler = async (args) => {
                   query: name,
                   searchMode: "semantic",
                   found: false,
-                  message: "No semantically similar entities found. Try fuzzy search or ensure data is loaded.",
+                  message:
+                    "No semantically similar entities found. Try fuzzy search or ensure data is loaded.",
                 },
                 null,
                 2
@@ -154,14 +150,14 @@ export const handler: ToolHandler = async (args) => {
                 searchMode: "semantic",
                 found: true,
                 confidence: Math.round(bestMatch.score * 100) / 100,
-                similarity: Math.round(bestMatch.similarity * 100) / 100,
+                distance: Math.round(bestMatch.distance * 1000) / 1000,
                 bestMatch: formatEntity(bestMatch.entity),
                 alternatives: alternatives.map((r) => ({
                   name: r.entity.name,
                   id: r.entity.id,
                   type: r.entity.entityType,
                   score: Math.round(r.score * 100) / 100,
-                  similarity: Math.round(r.similarity * 100) / 100,
+                  distance: Math.round(r.distance * 1000) / 1000,
                 })),
               },
               null,
@@ -184,7 +180,7 @@ export const handler: ToolHandler = async (args) => {
       // If no results in DB, fetch from API first
       if (candidates.length === 0) {
         const client = getDisneyFinderClient();
-        const destinations = destination ? [destination] : ["wdw", "dlr"] as DestinationId[];
+        const destinations = destination ? [destination] : (["wdw", "dlr"] as DestinationId[]);
 
         for (const dest of destinations) {
           if (!entityType || entityType === "ATTRACTION") {
@@ -208,7 +204,7 @@ export const handler: ToolHandler = async (args) => {
 
       // If still no results, try loading from DB and fuzzy matching
       if (candidates.length === 0) {
-        const destinations = destination ? [destination] : ["wdw", "dlr"] as DestinationId[];
+        const destinations = destination ? [destination] : (["wdw", "dlr"] as DestinationId[]);
         candidates = [];
 
         for (const dest of destinations) {

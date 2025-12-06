@@ -101,9 +101,7 @@ function checkSchemaVersion(database: SqlJsDatabase): boolean {
     }
 
     // Check schema version
-    const versionResult = database.exec(
-      "SELECT value FROM metadata WHERE key = 'schema_version'"
-    );
+    const versionResult = database.exec("SELECT value FROM metadata WHERE key = 'schema_version'");
 
     const versionData = versionResult[0];
     if (!versionData || versionData.values.length === 0) {
@@ -184,13 +182,13 @@ export async function getDatabaseStats(): Promise<DatabaseStats> {
   const database = await getDatabase();
 
   const cacheResult = database.exec("SELECT COUNT(*) as count FROM cache");
-  const cacheCount = cacheResult[0]?.values[0]?.[0] as number ?? 0;
+  const cacheCount = (cacheResult[0]?.values[0]?.[0] as number) ?? 0;
 
   const entityResult = database.exec("SELECT COUNT(*) as count FROM entities");
-  const entityCount = entityResult[0]?.values[0]?.[0] as number ?? 0;
+  const entityCount = (entityResult[0]?.values[0]?.[0] as number) ?? 0;
 
   const sessionResult = database.exec("SELECT COUNT(*) as count FROM sessions");
-  const sessionCount = sessionResult[0]?.values[0]?.[0] as number ?? 0;
+  const sessionCount = (sessionResult[0]?.values[0]?.[0] as number) ?? 0;
 
   // Approximate size from exported buffer
   const exportedData = database.export();

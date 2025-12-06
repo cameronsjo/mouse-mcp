@@ -60,15 +60,15 @@ export const definition: ToolDefinition = {
 
 export const handler: ToolHandler = async (args) => {
   // Validate destination
-  const destination = args["destination"] as string | undefined;
+  const destination = args.destination as string | undefined;
   if (!destination || !["wdw", "dlr"].includes(destination)) {
     return formatErrorResponse(
       new ValidationError("destination must be 'wdw' or 'dlr'", "destination", destination)
     );
   }
 
-  const parkId = args["parkId"] as string | undefined;
-  const filters = (args["filters"] as Record<string, unknown>) ?? {};
+  const parkId = args.parkId as string | undefined;
+  const filters = (args.filters as Record<string, unknown>) ?? {};
 
   try {
     const client = getDisneyFinderClient();
@@ -105,25 +105,25 @@ function applyFilters(
 ): DisneyAttraction[] {
   return attractions.filter((attr) => {
     // Lightning Lane filter
-    if (filters["hasLightningLane"] === true) {
+    if (filters.hasLightningLane === true) {
       if (!attr.lightningLane?.available) return false;
     }
 
     // Height requirement filter
-    if (typeof filters["maxHeightRequirement"] === "number") {
-      const maxHeight = filters["maxHeightRequirement"] as number;
+    if (typeof filters.maxHeightRequirement === "number") {
+      const maxHeight = filters.maxHeightRequirement;
       if (attr.heightRequirement && attr.heightRequirement.inches > maxHeight) {
         return false;
       }
     }
 
     // Thrill level filter
-    if (filters["thrillLevel"]) {
-      if (attr.thrillLevel !== filters["thrillLevel"]) return false;
+    if (filters.thrillLevel) {
+      if (attr.thrillLevel !== filters.thrillLevel) return false;
     }
 
     // Single rider filter
-    if (filters["hasSingleRider"] === true) {
+    if (filters.hasSingleRider === true) {
       if (!attr.singleRider) return false;
     }
 

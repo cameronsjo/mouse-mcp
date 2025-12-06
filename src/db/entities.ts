@@ -13,6 +13,8 @@ import type {
   DisneyAttraction,
   DisneyDining,
   DisneyShow,
+  DisneyShop,
+  DisneyEvent,
   DestinationId,
   EntityType,
 } from "../types/index.js";
@@ -142,7 +144,7 @@ export async function getEntities<T extends DisneyEntity>(options: {
   const db = await getDatabase();
 
   let sql = "SELECT data FROM entities WHERE destination_id = ?";
-  const params: (string | null)[] = [options.destinationId];
+  const params: Array<string | null> = [options.destinationId];
 
   if (options.entityType) {
     sql += " AND entity_type = ?";
@@ -219,6 +221,34 @@ export async function getShows(
 }
 
 /**
+ * Get shops for a destination.
+ */
+export async function getShops(
+  destinationId: DestinationId,
+  parkId?: string
+): Promise<DisneyShop[]> {
+  return getEntities<DisneyShop>({
+    destinationId,
+    entityType: "SHOP",
+    parkId,
+  });
+}
+
+/**
+ * Get events/tours for a destination.
+ */
+export async function getEvents(
+  destinationId: DestinationId,
+  parkId?: string
+): Promise<DisneyEvent[]> {
+  return getEntities<DisneyEvent>({
+    destinationId,
+    entityType: "EVENT",
+    parkId,
+  });
+}
+
+/**
  * Search entities by name using fuzzy matching.
  * (FTS5 not available in sql.js - using Fuse.js instead)
  */
@@ -275,16 +305,13 @@ export async function searchEntitiesByName<T extends DisneyEntity>(
 /**
  * Delete all entities for a destination.
  */
-export async function deleteEntitiesForDestination(
-  destinationId: DestinationId
-): Promise<number> {
+export async function deleteEntitiesForDestination(destinationId: DestinationId): Promise<number> {
   const db = await getDatabase();
 
-  const countResult = db.exec(
-    "SELECT COUNT(*) FROM entities WHERE destination_id = ?",
-    [destinationId]
-  );
-  const count = countResult[0]?.values[0]?.[0] as number ?? 0;
+  const countResult = db.exec("SELECT COUNT(*) FROM entities WHERE destination_id = ?", [
+    destinationId,
+  ]);
+  const count = (countResult[0]?.values[0]?.[0] as number) ?? 0;
 
   db.run("DELETE FROM entities WHERE destination_id = ?", [destinationId]);
   persistDatabase();
@@ -315,6 +342,8 @@ export async function getEntityCounts(
     ATTRACTION: 0,
     RESTAURANT: 0,
     SHOW: 0,
+    SHOP: 0,
+    EVENT: 0,
     HOTEL: 0,
   };
 

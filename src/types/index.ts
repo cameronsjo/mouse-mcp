@@ -21,6 +21,8 @@ export type {
   PriceRange,
   DisneyDining,
   DisneyShow,
+  DisneyShop,
+  DisneyEvent,
   DisneyHotel,
   ToolResponse,
   SearchResult,

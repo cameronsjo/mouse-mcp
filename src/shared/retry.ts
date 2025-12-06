@@ -114,12 +114,7 @@ function isNonRetryable(error: unknown, nonRetryableCodes: Set<number>): boolean
   }
 
   // Check for status property (fetch responses)
-  if (
-    error &&
-    typeof error === "object" &&
-    "status" in error &&
-    typeof error.status === "number"
-  ) {
+  if (error && typeof error === "object" && "status" in error && typeof error.status === "number") {
     return nonRetryableCodes.has(error.status);
   }
 

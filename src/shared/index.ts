@@ -14,8 +14,4 @@ export {
   type ErrorResponse,
 } from "./errors.js";
 export { withRetry, type RetryOptions } from "./retry.js";
-export {
-  fuzzySearch,
-  findBestMatch,
-  type FuzzyMatchOptions,
-} from "./fuzzy-match.js";
+export { fuzzySearch, findBestMatch, type FuzzyMatchOptions } from "./fuzzy-match.js";

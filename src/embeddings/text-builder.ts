@@ -77,9 +77,7 @@ function buildAttractionText(attr: DisneyAttraction): string[] {
 
   // Height requirement context
   if (attr.heightRequirement) {
-    parts.push(
-      `height requirement ${attr.heightRequirement.inches} inches`
-    );
+    parts.push(`height requirement ${attr.heightRequirement.inches} inches`);
   }
 
   // Tags contain rich categorical info

@@ -26,7 +26,7 @@ export const definition: ToolDefinition = {
 };
 
 export const handler: ToolHandler = async (args) => {
-  const includeDetails = args["includeDetails"] === true;
+  const includeDetails = args.includeDetails === true;
 
   const sessionManager = getSessionManager();
   const dbStats = await getDatabaseStats();

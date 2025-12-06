@@ -15,6 +15,8 @@ export type EntityType =
   | "ATTRACTION"
   | "RESTAURANT"
   | "SHOW"
+  | "SHOP"
+  | "EVENT"
   | "HOTEL";
 
 /** Service type for dining locations */
@@ -132,6 +134,20 @@ export interface DisneyShow extends DisneyEntity {
   readonly entityType: "SHOW";
   readonly showType: "fireworks" | "parade" | "stage-show" | "character-meet" | "other";
   readonly duration: string | null;
+  readonly tags: string[];
+}
+
+/** Shop/merchandise location entity */
+export interface DisneyShop extends DisneyEntity {
+  readonly entityType: "SHOP";
+  readonly shopType: "merchandise" | "apparel" | "gifts" | "specialty" | "other";
+  readonly tags: string[];
+}
+
+/** Event/tour entity */
+export interface DisneyEvent extends DisneyEntity {
+  readonly entityType: "EVENT";
+  readonly eventType: "special-event" | "tour" | "extra" | "seasonal" | "other";
   readonly tags: string[];
 }
 

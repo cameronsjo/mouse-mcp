@@ -149,10 +149,7 @@ export async function deleteSession(destination: DestinationId): Promise<boolean
 /**
  * Update session error tracking.
  */
-export async function updateSessionError(
-  destination: DestinationId,
-  error: string
-): Promise<void> {
+export async function updateSessionError(destination: DestinationId, error: string): Promise<void> {
   const db = await getDatabase();
 
   db.run(
@@ -189,10 +186,7 @@ export async function resetSessionErrors(destination: DestinationId): Promise<vo
 /**
  * Check if a session is expired or expiring soon.
  */
-export function isSessionExpired(
-  session: DisneySession,
-  bufferMinutes: number = 60
-): boolean {
+export function isSessionExpired(session: DisneySession, bufferMinutes = 60): boolean {
   const now = Date.now();
   const expiresAt = new Date(session.expiresAt).getTime();
   const bufferMs = bufferMinutes * 60 * 1000;

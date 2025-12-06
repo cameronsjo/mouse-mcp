@@ -28,9 +28,7 @@ const tools: ToolEntry[] = [
 /**
  * Register all tools into a Map for lookup.
  */
-export function registerTools(
-  toolMap: Map<string, ToolEntry>
-): void {
+export function registerTools(toolMap: Map<string, ToolEntry>): void {
   for (const tool of tools) {
     toolMap.set(tool.definition.name, tool);
   }

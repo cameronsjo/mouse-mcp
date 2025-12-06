@@ -27,8 +27,7 @@ export const definition: ToolDefinition = {
       parkId: {
         type: "string",
         description:
-          "Optional: Filter to a specific park by ID. " +
-          "Get park IDs from disney_destinations.",
+          "Optional: Filter to a specific park by ID. " + "Get park IDs from disney_destinations.",
       },
       filters: {
         type: "object",
@@ -37,7 +36,13 @@ export const definition: ToolDefinition = {
           serviceType: {
             type: "string",
             description: "Filter by service type",
-            enum: ["table-service", "quick-service", "character-dining", "fine-signature-dining", "lounge"],
+            enum: [
+              "table-service",
+              "quick-service",
+              "character-dining",
+              "fine-signature-dining",
+              "lounge",
+            ],
           },
           mealPeriod: {
             type: "string",
@@ -65,15 +70,15 @@ export const definition: ToolDefinition = {
 
 export const handler: ToolHandler = async (args) => {
   // Validate destination
-  const destination = args["destination"] as string | undefined;
+  const destination = args.destination as string | undefined;
   if (!destination || !["wdw", "dlr"].includes(destination)) {
     return formatErrorResponse(
       new ValidationError("destination must be 'wdw' or 'dlr'", "destination", destination)
     );
   }
 
-  const parkId = args["parkId"] as string | undefined;
-  const filters = (args["filters"] as Record<string, unknown>) ?? {};
+  const parkId = args.parkId as string | undefined;
+  const filters = (args.filters as Record<string, unknown>) ?? {};
 
   try {
     const client = getDisneyFinderClient();
@@ -104,33 +109,30 @@ export const handler: ToolHandler = async (args) => {
   }
 };
 
-function applyFilters(
-  dining: DisneyDining[],
-  filters: Record<string, unknown>
-): DisneyDining[] {
+function applyFilters(dining: DisneyDining[], filters: Record<string, unknown>): DisneyDining[] {
   return dining.filter((d) => {
     // Service type filter
-    if (filters["serviceType"]) {
-      if (d.serviceType !== filters["serviceType"]) return false;
+    if (filters.serviceType) {
+      if (d.serviceType !== filters.serviceType) return false;
     }
 
     // Meal period filter
-    if (filters["mealPeriod"]) {
-      if (!d.mealPeriods.includes(filters["mealPeriod"] as MealPeriod)) return false;
+    if (filters.mealPeriod) {
+      if (!d.mealPeriods.includes(filters.mealPeriod as MealPeriod)) return false;
     }
 
     // Reservations filter
-    if (filters["reservationsAccepted"] === true) {
+    if (filters.reservationsAccepted === true) {
       if (!d.reservationsAccepted) return false;
     }
 
     // Character dining filter
-    if (filters["characterDining"] === true) {
+    if (filters.characterDining === true) {
       if (!d.characterDining) return false;
     }
 
     // Mobile order filter
-    if (filters["mobileOrder"] === true) {
+    if (filters.mobileOrder === true) {
       if (!d.mobileOrder) return false;
     }
 

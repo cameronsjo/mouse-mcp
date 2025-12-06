@@ -20,10 +20,10 @@ import type { DisneySession, DestinationId, SessionCookie } from "../types/index
 
 const logger = createLogger("SessionManager");
 
-/** Disney website URLs by destination */
+/** Disney website URLs by destination - use attractions pages to trigger API auth */
 const DISNEY_URLS: Record<DestinationId, string> = {
-  wdw: "https://disneyworld.disney.go.com",
-  dlr: "https://disneyland.disney.go.com",
+  wdw: "https://disneyworld.disney.go.com/attractions/",
+  dlr: "https://disneyland.disney.go.com/attractions/",
 };
 
 /** Cookie consent selectors (Disney uses OneTrust) */
@@ -33,8 +33,8 @@ const CONSENT_SELECTORS = [
   'button[aria-label*="Accept"]',
 ];
 
-/** Default session duration in hours (conservative estimate) */
-const SESSION_DURATION_HOURS = 24;
+/** Default session duration in hours (8 hours matches Disney token TTL) */
+const DEFAULT_SESSION_HOURS = 8;
 
 /**
  * Session manager for Disney API authentication.
@@ -44,7 +44,7 @@ const SESSION_DURATION_HOURS = 24;
  */
 export class SessionManager {
   private browser: Browser | null = null;
-  private refreshPromises: Map<DestinationId, Promise<DisneySession | null>> = new Map();
+  private refreshPromises = new Map<DestinationId, Promise<DisneySession | null>>();
   private initialized = false;
 
   /**
@@ -184,9 +184,7 @@ export class SessionManager {
     }
 
     // Build cookie header from session cookies
-    const cookieHeader = session.cookies
-      .map((c) => `${c.name}=${c.value}`)
-      .join("; ");
+    const cookieHeader = session.cookies.map((c) => `${c.name}=${c.value}`).join("; ");
 
     const headers: Record<string, string> = {
       Cookie: cookieHeader,
@@ -263,7 +261,7 @@ export class SessionManager {
     if (!this.browser) {
       const config = getConfig();
       this.browser = await chromium.launch({
-        headless: config.headless,
+        headless: !config.showBrowser,
       });
     }
     return this.browser;
@@ -290,30 +288,33 @@ export class SessionManager {
   }
 
   private async waitForSessionCookies(context: BrowserContext): Promise<void> {
-    const maxAttempts = 10;
+    const maxAttempts = 15;
     const pollInterval = 1000;
 
     for (let attempt = 0; attempt < maxAttempts; attempt++) {
       const cookies = await context.cookies();
 
-      // Look for session-related cookies
-      const hasSessionCookies = cookies.some(
-        (c) =>
-          c.name.includes("session") ||
-          c.name.includes("auth") ||
-          c.name.includes("SWID") ||
-          c.name.includes("guest")
-      );
+      // The critical cookie is __d - a JWT containing the access token
+      // This is generated client-side by Disney's JavaScript after page load
+      const authCookie = cookies.find((c) => c.name === "__d");
 
-      if (hasSessionCookies) {
-        logger.debug("Session cookies detected", { attempt: attempt + 1 });
+      if (authCookie) {
+        logger.debug("Disney auth cookie (__d) detected", { attempt: attempt + 1 });
+        return;
+      }
+
+      // Also check for finderPublicTokenExpireTime which indicates the finder API is ready
+      const finderToken = cookies.find((c) => c.name === "finderPublicTokenExpireTime");
+
+      if (finderToken) {
+        logger.debug("Finder token detected", { attempt: attempt + 1 });
         return;
       }
 
       await new Promise((resolve) => setTimeout(resolve, pollInterval));
     }
 
-    logger.warn("Session cookies not detected, proceeding with available cookies");
+    logger.warn("Disney auth cookies not detected after max attempts");
   }
 
   private async extractSession(
@@ -330,7 +331,7 @@ export class SessionManager {
       expires: c.expires,
       httpOnly: c.httpOnly,
       secure: c.secure,
-      sameSite: c.sameSite as "Strict" | "Lax" | "None",
+      sameSite: c.sameSite,
     }));
 
     // Extract specific tokens
@@ -365,14 +366,32 @@ export class SessionManager {
       if (cookie.name === "SWID") {
         sessionId = cookie.value;
       }
+      // The __d cookie is a JWT containing the bearer token
+      if (cookie.name === "__d") {
+        authToken = cookie.value;
+        // Decode JWT to get actual access token (for logging/debugging)
+        try {
+          const payload = JSON.parse(
+            Buffer.from(cookie.value.split(".")[1] ?? "", "base64").toString()
+          );
+          logger.debug("Disney auth token extracted", {
+            expiresIn: payload.expires_in,
+            tokenType: payload.token_type,
+          });
+        } catch {
+          logger.debug("Could not decode __d JWT payload");
+        }
+      }
     }
 
-    // Check localStorage for tokens
-    for (const origin of origins) {
-      for (const item of origin.localStorage) {
-        if (item.name.includes("token") || item.name.includes("auth")) {
-          authToken = item.value;
-          break;
+    // Check localStorage for tokens (fallback)
+    if (!authToken) {
+      for (const origin of origins) {
+        for (const item of origin.localStorage) {
+          if (item.name.includes("token") || item.name.includes("auth")) {
+            authToken = item.value;
+            break;
+          }
         }
       }
     }
@@ -381,9 +400,36 @@ export class SessionManager {
   }
 
   private calculateExpiration(cookies: SessionCookie[]): string {
-    // Look for session cookies with expiration
+    // Primary: Check __d JWT for expiration info
+    const authCookie = cookies.find((c) => c.name === "__d");
+    if (authCookie) {
+      try {
+        const payload = JSON.parse(
+          Buffer.from(authCookie.value.split(".")[1] ?? "", "base64").toString()
+        );
+        // payload.iat is when token was issued, expires_in is seconds
+        if (payload.iat && payload.expires_in) {
+          const expiresAtMs = (payload.iat + parseInt(payload.expires_in, 10)) * 1000;
+          return new Date(expiresAtMs).toISOString();
+        }
+      } catch {
+        // Fall through to other methods
+      }
+    }
+
+    // Fallback: Check finderPublicTokenExpireTime cookie
+    const finderExpire = cookies.find((c) => c.name === "finderPublicTokenExpireTime");
+    if (finderExpire) {
+      const expireMs = parseInt(finderExpire.value, 10);
+      if (expireMs > Date.now()) {
+        return new Date(expireMs).toISOString();
+      }
+    }
+
+    // Last resort: Look for any session cookie expiration
     const sessionCookies = cookies.filter(
       (c) =>
+        c.name === "__d" ||
         c.name.includes("session") ||
         c.name.includes("auth") ||
         c.name.includes("SWID")
@@ -400,10 +446,8 @@ export class SessionManager {
       }
     }
 
-    // Default expiration (24 hours)
-    return new Date(
-      Date.now() + SESSION_DURATION_HOURS * 60 * 60 * 1000
-    ).toISOString();
+    // Default expiration (8 hours, matching Disney's token TTL)
+    return new Date(Date.now() + DEFAULT_SESSION_HOURS * 60 * 60 * 1000).toISOString();
   }
 
   private getTimezone(destination: DestinationId): string {

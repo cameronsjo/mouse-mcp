@@ -6,10 +6,7 @@
 
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
-import {
-  CallToolRequestSchema,
-  ListToolsRequestSchema,
-} from "@modelcontextprotocol/sdk/types.js";
+import { CallToolRequestSchema, ListToolsRequestSchema } from "@modelcontextprotocol/sdk/types.js";
 import { createLogger } from "./shared/index.js";
 import { formatErrorResponse } from "./shared/errors.js";
 import { getToolDefinitions, getTool } from "./tools/index.js";
@@ -67,7 +64,9 @@ export class DisneyMcpServer {
       const tool = getTool(name);
       if (!tool) {
         logger.warn("Unknown tool requested", { tool: name });
-        return formatErrorResponse(new Error(`Unknown tool: ${name}`)) as { content: Array<{ type: "text"; text: string }> };
+        return formatErrorResponse(new Error(`Unknown tool: ${name}`)) as {
+          content: Array<{ type: "text"; text: string }>;
+        };
       }
 
       try {
