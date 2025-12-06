@@ -373,7 +373,8 @@ export class SessionManager {
         try {
           const payload = JSON.parse(
             Buffer.from(cookie.value.split(".")[1] ?? "", "base64").toString()
-          );
+            // eslint-disable-next-line @typescript-eslint/naming-convention -- JWT payload uses snake_case
+          ) as { expires_in?: string; token_type?: string };
           logger.debug("Disney auth token extracted", {
             expiresIn: payload.expires_in,
             tokenType: payload.token_type,
@@ -409,7 +410,7 @@ export class SessionManager {
           // eslint-disable-next-line @typescript-eslint/naming-convention
         ) as { iat?: number; expires_in?: string };
         // payload.iat is when token was issued, expires_in is seconds
-        if (payload.iat && payload.expires_in) {
+        if (payload.iat !== undefined && payload.expires_in) {
           const expiresAtMs = (payload.iat + parseInt(payload.expires_in, 10)) * 1000;
           return new Date(expiresAtMs).toISOString();
         }

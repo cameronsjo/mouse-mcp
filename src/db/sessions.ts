@@ -40,8 +40,8 @@ export async function loadSession(destination: DestinationId): Promise<DisneySes
     const session: DisneySession = {
       destination: String(row[0]) as DestinationId,
       state: String(row[1]) as DisneySession["state"],
-      cookies: JSON.parse(String(row[2])),
-      tokens: JSON.parse(String(row[3])),
+      cookies: JSON.parse(String(row[2])) as DisneySession["cookies"],
+      tokens: JSON.parse(String(row[3])) as DisneySession["tokens"],
       createdAt: String(row[4]),
       refreshedAt: String(row[5]),
       expiresAt: String(row[6]),
@@ -82,8 +82,8 @@ export async function loadAllSessions(): Promise<DisneySession[]> {
       sessions.push({
         destination: String(row[0]) as DestinationId,
         state: String(row[1]) as DisneySession["state"],
-        cookies: JSON.parse(String(row[2])),
-        tokens: JSON.parse(String(row[3])),
+        cookies: JSON.parse(String(row[2])) as DisneySession["cookies"],
+        tokens: JSON.parse(String(row[3])) as DisneySession["tokens"],
         createdAt: String(row[4]),
         refreshedAt: String(row[5]),
         expiresAt: String(row[6]),

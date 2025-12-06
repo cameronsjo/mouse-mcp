@@ -4,6 +4,7 @@
  * MCP server that provides Disney parks data through tools.
  */
 
+// Using low-level Server API for fine-grained control over request handling
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { CallToolRequestSchema, ListToolsRequestSchema } from "@modelcontextprotocol/sdk/types.js";
@@ -25,10 +26,12 @@ const SERVER_VERSION = "1.0.0";
  * Provides structured Disney park data through MCP tools.
  */
 export class DisneyMcpServer {
+  // eslint-disable-next-line @typescript-eslint/no-deprecated -- Using low-level Server for fine-grained control
   private readonly server: Server;
   private cleanupEventHandlers?: () => void;
 
   constructor() {
+    // eslint-disable-next-line @typescript-eslint/no-deprecated
     this.server = new Server(
       {
         name: SERVER_NAME,
