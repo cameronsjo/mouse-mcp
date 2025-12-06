@@ -131,7 +131,31 @@ function applyFilters(
   });
 }
 
-function formatAttraction(attr: DisneyAttraction) {
+function formatAttraction(attr: DisneyAttraction): {
+  id: string;
+  name: string;
+  slug: string | null;
+  park: string | null;
+  location: { latitude: number; longitude: number } | null;
+  url: string | null;
+  metadata: {
+    heightRequirement: string | null;
+    thrillLevel: string | null;
+    experienceType: string | null;
+    duration: string | null;
+  };
+  features: {
+    lightningLane: string;
+    singleRider: boolean;
+    riderSwap: boolean;
+    photopass: boolean;
+    virtualQueue: boolean;
+  };
+  accessibility: {
+    wheelchairAccessible: boolean;
+  };
+  tags: string[];
+} {
   return {
     id: attr.id,
     name: attr.name,
@@ -152,5 +176,9 @@ function formatAttraction(attr: DisneyAttraction) {
       photopass: attr.photopass,
       virtualQueue: attr.virtualQueue,
     },
+    accessibility: {
+      wheelchairAccessible: attr.wheelchairAccessible,
+    },
+    tags: attr.tags,
   };
 }

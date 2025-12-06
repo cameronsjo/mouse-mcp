@@ -91,8 +91,12 @@ export class Logger {
         message: error.message,
         stack: error.stack,
       };
-    } else if (error !== undefined) {
-      errorData.error = String(error);
+    } else if (error !== undefined && error !== null) {
+      // Use JSON.stringify for objects, String() for primitives
+      errorData.error =
+        typeof error === "object"
+          ? JSON.stringify(error)
+          : String(error as string | number | boolean);
     }
 
     this.log("ERROR", message, errorData);

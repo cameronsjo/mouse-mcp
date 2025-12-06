@@ -140,7 +140,27 @@ function applyFilters(dining: DisneyDining[], filters: Record<string, unknown>):
   });
 }
 
-function formatDining(d: DisneyDining) {
+function formatDining(d: DisneyDining): {
+  id: string;
+  name: string;
+  slug: string | null;
+  park: string | null;
+  location: { latitude: number; longitude: number } | null;
+  url: string | null;
+  metadata: {
+    serviceType: string | null;
+    priceRange: string | null;
+    cuisine: string[];
+    mealPeriods: string[];
+  };
+  features: {
+    reservationsAccepted: boolean;
+    reservationsRequired: boolean;
+    mobileOrder: boolean;
+    characterDining: boolean;
+    disneyDiningPlan: boolean;
+  };
+} {
   return {
     id: d.id,
     name: d.name,
