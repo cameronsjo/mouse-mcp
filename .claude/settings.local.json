@@ -1,0 +1,12 @@
+{
+  "permissions": {
+    "allow": [
+      "WebFetch(domain:pypi.org)",
+      "WebFetch(domain:api.themeparks.wiki)",
+      "WebFetch(domain:codesignal.com)",
+      "WebFetch(domain:playwright.dev)"
+    ],
+    "deny": [],
+    "ask": []
+  }
+}

@@ -1,0 +1,38 @@
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+
+# Environment
+.env
+.env.local
+.env.*.local
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+.DS_Store
+
+# Test coverage
+coverage/
+
+# SQLite database (local cache)
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+
+# Playwright
+playwright-report/
+test-results/
+
+# OS files
+Thumbs.db

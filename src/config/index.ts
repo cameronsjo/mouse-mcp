@@ -1,0 +1,97 @@
+/**
+ * Configuration
+ *
+ * Environment-based configuration with validation.
+ * All environment variables are prefixed with MOUSE_MCP_.
+ */
+
+import { homedir } from "node:os";
+import { join } from "node:path";
+
+export type LogLevel = "DEBUG" | "INFO" | "WARN" | "ERROR";
+
+export type EmbeddingProviderType = "openai" | "transformers" | "auto";
+
+export interface Config {
+  readonly nodeEnv: "development" | "production" | "test";
+  readonly logLevel: LogLevel;
+  readonly dbPath: string;
+  readonly refreshBufferMinutes: number;
+  readonly timeoutMs: number;
+  readonly headless: boolean;
+  /** Embedding provider selection */
+  readonly embeddingProvider: EmbeddingProviderType;
+  /** OpenAI API key for embeddings (optional) */
+  readonly openaiApiKey: string | undefined;
+}
+
+let cachedConfig: Config | null = null;
+
+/**
+ * Get application configuration.
+ * Configuration is cached after first load.
+ */
+export function getConfig(): Config {
+  if (cachedConfig) {
+    return cachedConfig;
+  }
+
+  const nodeEnv = (process.env["NODE_ENV"] ?? "development") as Config["nodeEnv"];
+
+  // Default database path: ~/.cache/mouse-mcp/disney.db
+  const defaultDbPath = join(homedir(), ".cache", "mouse-mcp", "disney.db");
+
+  cachedConfig = {
+    nodeEnv,
+    logLevel: parseLogLevel(process.env["MOUSE_MCP_LOG_LEVEL"], nodeEnv),
+    dbPath: process.env["MOUSE_MCP_DB_PATH"] ?? defaultDbPath,
+    // Daily refresh - check once per day
+    refreshBufferMinutes: parseInt(process.env["MOUSE_MCP_REFRESH_BUFFER"] ?? "60", 10),
+    timeoutMs: parseInt(process.env["MOUSE_MCP_TIMEOUT"] ?? "30000", 10),
+    headless: process.env["MOUSE_MCP_HEADLESS"] !== "false",
+    // Embedding configuration
+    embeddingProvider: parseEmbeddingProvider(process.env["MOUSE_MCP_EMBEDDING_PROVIDER"]),
+    openaiApiKey: process.env["OPENAI_API_KEY"],
+  };
+
+  return cachedConfig;
+}
+
+/**
+ * Parse log level from environment, with sensible defaults.
+ */
+function parseLogLevel(value: string | undefined, nodeEnv: string): LogLevel {
+  if (value) {
+    const upper = value.toUpperCase();
+    if (isLogLevel(upper)) {
+      return upper;
+    }
+  }
+
+  // Default: DEBUG in development, INFO in production
+  return nodeEnv === "production" ? "INFO" : "DEBUG";
+}
+
+function isLogLevel(value: string): value is LogLevel {
+  return ["DEBUG", "INFO", "WARN", "ERROR"].includes(value);
+}
+
+/**
+ * Parse embedding provider from environment.
+ */
+function parseEmbeddingProvider(value: string | undefined): EmbeddingProviderType {
+  if (value) {
+    const lower = value.toLowerCase();
+    if (lower === "openai" || lower === "transformers" || lower === "auto") {
+      return lower;
+    }
+  }
+  return "auto";
+}
+
+/**
+ * Reset config cache (useful for testing).
+ */
+export function resetConfig(): void {
+  cachedConfig = null;
+}
