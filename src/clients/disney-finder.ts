@@ -321,7 +321,7 @@ export class DisneyFinderClient {
     );
 
     // Normalize Disney API response to our types
-    return this.normalizeAttractions(response.results || [], destinationId);
+    return this.normalizeAttractions(response.results ?? [], destinationId);
   }
 
   private async fetchDiningFromDisney(
@@ -350,7 +350,7 @@ export class DisneyFinderClient {
       destinationId
     );
 
-    return this.normalizeDining(response.results || [], destinationId);
+    return this.normalizeDining(response.results ?? [], destinationId);
   }
 
   private async fetchEntertainmentFromDisney(
@@ -379,7 +379,7 @@ export class DisneyFinderClient {
       destinationId
     );
 
-    return this.normalizeEntertainment(response.results || [], destinationId);
+    return this.normalizeEntertainment(response.results ?? [], destinationId);
   }
 
   private async fetchShopsFromDisney(
@@ -408,7 +408,7 @@ export class DisneyFinderClient {
       destinationId
     );
 
-    return this.normalizeShops(response.results || [], destinationId);
+    return this.normalizeShops(response.results ?? [], destinationId);
   }
 
   private async fetchEventsFromDisney(
@@ -437,7 +437,7 @@ export class DisneyFinderClient {
       destinationId
     );
 
-    return this.normalizeEvents(response.results || [], destinationId);
+    return this.normalizeEvents(response.results ?? [], destinationId);
   }
 
   private async fetchWithAuth<T>(
@@ -611,6 +611,12 @@ export class DisneyFinderClient {
     });
   }
 
+  /**
+   * Normalize entertainment entities, filtering out rides.
+   *
+   * Disney's /entertainment endpoint returns rides alongside shows.
+   * We filter to only return actual shows (rides should come from /attractions).
+   */
   private normalizeEntertainment(
     results: DisneyApiEntity[],
     destinationId: DestinationId
@@ -618,7 +624,15 @@ export class DisneyFinderClient {
     const parks = PARK_INFO[destinationId];
     const parkMap = new Map(parks.map((p) => [p.id, p.name]));
 
-    return results.map((entity) => {
+    // Filter out rides, keep only shows
+    const showEntities = results.filter((entity) => !this.isRide(entity));
+    logger.debug("Filtered entertainment results", {
+      total: results.length,
+      rides: results.length - showEntities.length,
+      shows: showEntities.length,
+    });
+
+    return showEntities.map((entity) => {
       // Extract park ID from parkIds array
       const parkIdFull = entity.parkIds?.[0];
       const parkId = parkIdFull?.split(";")[0] ?? null;
@@ -655,6 +669,54 @@ export class DisneyFinderClient {
         tags,
       };
     });
+  }
+
+  /**
+   * Determine if an entity is a ride based on Disney API facets.
+   *
+   * Classification rules:
+   * - RIDE if: thrillFactor exists, OR
+   *   parkInterests contains 'thrill-rides-rec' or 'slow-rides-rec', OR
+   *   height requirement exists (not 'any-height')
+   *
+   * - SHOW if: No thrillFactor, any-height, interests = 'indoor-attractions'
+   *   without ride indicators, OR name contains show/theater/fireworks/parade
+   */
+  private isRide(entity: DisneyApiEntity): boolean {
+    const facets = entity.facets ?? {};
+    const parkInterests = facets.parkInterests ?? [];
+
+    // Flatten all facet values into a single array for comprehensive checks
+    const allFacetValues: string[] = [];
+    for (const values of Object.values(facets)) {
+      if (Array.isArray(values)) {
+        allFacetValues.push(...values);
+      }
+    }
+
+    // Check for explicit ride indicators in parkInterests
+    const hasRideInterest =
+      parkInterests.includes("thrill-rides-rec") || parkInterests.includes("slow-rides-rec");
+
+    // Check for height requirement (pattern like "48-inches-122-cm-or-taller", but NOT "any-height")
+    // Height may be in facets.height or elsewhere in facets
+    const heightPattern = /\d+-inches-\d+-cm/;
+    const hasHeightRequirement = allFacetValues.some(
+      (v) => heightPattern.test(v) && v !== "any-height"
+    );
+
+    // Check for ride-specific tags/facets
+    const hasThrillIndicators =
+      allFacetValues.includes("thrill-rides") ||
+      allFacetValues.includes("slow-rides") ||
+      allFacetValues.includes("water-rides") ||
+      allFacetValues.includes("big-drops") ||
+      allFacetValues.includes("small-drops") ||
+      allFacetValues.includes("spinning") ||
+      allFacetValues.includes("dark");
+
+    // It's a ride if any ride indicator is present
+    return hasRideInterest || hasHeightRequirement || hasThrillIndicators;
   }
 
   private normalizeShops(results: DisneyApiEntity[], destinationId: DestinationId): DisneyShop[] {
@@ -1011,8 +1073,6 @@ interface DisneyApiResponse {
 let instance: DisneyFinderClient | null = null;
 
 export function getDisneyFinderClient(): DisneyFinderClient {
-  if (!instance) {
-    instance = new DisneyFinderClient();
-  }
+  instance ??= new DisneyFinderClient();
   return instance;
 }

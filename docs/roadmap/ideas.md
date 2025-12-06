@@ -19,7 +19,7 @@ Current SDK: `@modelcontextprotocol/sdk@1.12.0` (needs upgrade for 2025-11-25 fe
 | Roots | ❌ N/A | Filesystem boundaries, not applicable |
 | OAuth 2.1 Auth | ❌ Missing | Required for cloud deployment |
 | .well-known Discovery | ❌ Missing | New in 2025-11-25 |
-| Streamable HTTP | ❌ Missing | Only stdio transport |
+| Streamable HTTP | 📝 Researched | See [research-http-transport.md](./research-http-transport.md) |
 
 ---
 
@@ -56,7 +56,6 @@ Current SDK: `@modelcontextprotocol/sdk@1.12.0` (needs upgrade for 2025-11-25 fe
 | Add pagination to list operations | p3 | small | limit/offset support for all query tools |
 | Implement cache warm-up on startup | p3 | small | Pre-load frequently accessed entities |
 | Add Prometheus metrics | p3 | medium | Tool invocation counts, latency histograms, cache hit rates |
-| Fix entity type deduplication | p1 | medium | Disney /entertainment returns rides alongside shows. Attractions saved first get overwritten as SHOW. Need entity type priority: ATTRACTION > SHOW > EVENT |
 | Rotate user agents | p4 | small | Avoid static user agent being easily identifiable |
 | Add background cache purging | p4 | small | Scheduled cleanup of expired cache entries |
 
@@ -67,8 +66,8 @@ Current SDK: `@modelcontextprotocol/sdk@1.12.0` (needs upgrade for 2025-11-25 fe
 | Item | Priority | Effort | Notes |
 |------|----------|--------|-------|
 | Upgrade to MCP SDK 2025-11-25 | p1 | small | Update @modelcontextprotocol/sdk for new spec features |
-| Implement OAuth 2.1 authentication | p1 | large | Required for cloud deployment - PKCE, RFC 8707 resource indicators |
-| Add Streamable HTTP transport | p1 | medium | Enable cloud deployment alongside stdio |
+| Implement OAuth 2.1 authentication | p1 | large | Required for cloud deployment - PKCE, RFC 8707 resource indicators. See [research-mcp-authorization.md](./research-mcp-authorization.md) and [authorization-server-comparison.md](./authorization-server-comparison.md) |
+| Add Streamable HTTP transport | p1 | medium | Enable cloud deployment alongside stdio. See [research-http-transport.md](./research-http-transport.md), [http-transport-quickstart.md](./http-transport-quickstart.md), [http-transport-architecture.md](./http-transport-architecture.md), and [http-transport-examples.md](./http-transport-examples.md) |
 | Implement MCP Tasks | p2 | medium | Long-running ops (disney_sync) with progress tracking |
 | Add .well-known discovery endpoint | p2 | small | Server metadata at /.well-known/mcp for capability discovery |
 | Implement MCP Prompts | p2 | medium | Trip planning templates, park day itineraries |
