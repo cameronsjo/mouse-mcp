@@ -9,7 +9,9 @@ import { getDisneyFinderClient } from "../clients/index.js";
 import { formatErrorResponse } from "../shared/index.js";
 import { getEmbeddingStats } from "../vectordb/index.js";
 import { getEmbeddingProvider } from "../embeddings/index.js";
-import type { DestinationId } from "../types/index.js";
+import { ensureEmbeddingsBatch } from "../embeddings/search.js";
+import { getEntities } from "../db/index.js";
+import type { DestinationId, DisneyEntity } from "../types/index.js";
 
 export const definition: ToolDefinition = {
   name: "initialize",
@@ -93,19 +95,35 @@ export const handler: ToolHandler = async (args) => {
 
     stats.timing.dataLoadMs = Date.now() - dataStart;
 
-    // Initialize embedding provider (triggers model download if needed)
+    // Initialize embedding provider and generate embeddings
     if (!skipEmbeddings) {
       const embeddingStart = Date.now();
 
-      // Just accessing the provider triggers lazy loading
+      // Initialize provider (triggers model download if needed)
       const provider = await getEmbeddingProvider();
       stats.provider = provider.fullModelName;
 
-      // Embeddings are generated async when entities are saved
-      // Wait a moment for background embedding generation to start
-      await new Promise((resolve) => setTimeout(resolve, 100));
+      // Check if we need to generate embeddings
+      // WHY: If data came from cache, no save events fired, so we need to ensure embeddings exist
+      const currentEmbeddingStats = await getEmbeddingStats();
+      const totalEntities =
+        stats.attractions + stats.dining + stats.shows + stats.shops + stats.events;
 
-      // Get embedding stats
+      if (currentEmbeddingStats.total < totalEntities) {
+        // Load all entities from DB and generate embeddings
+        const allEntities: DisneyEntity[] = [];
+        for (const dest of destinations) {
+          const entities = await getEntities<DisneyEntity>({ destinationId: dest });
+          allEntities.push(...entities);
+        }
+
+        if (allEntities.length > 0) {
+          // Generate embeddings synchronously (blocking)
+          await ensureEmbeddingsBatch(allEntities);
+        }
+      }
+
+      // Get final embedding stats
       const embeddingStats = await getEmbeddingStats();
       stats.embeddings = embeddingStats;
       stats.timing.embeddingMs = Date.now() - embeddingStart;

@@ -74,6 +74,41 @@ function formatEntityType(type: string): string {
   return typeMap[type] ?? type.toLowerCase();
 }
 
+/** Tags that add noise without semantic value */
+const NOISE_TAGS = new Set([
+  "FinderPCAttractions",
+  "FinderMobileAttractions",
+  "FinderPCDining",
+  "FinderMobileDining",
+  "FinderPCEntertainment",
+  "FinderMobileEntertainment",
+  "RatingsReviewsAttractions",
+  "RatingsReviewsDining",
+  "mobile-playapp-enabled",
+  "play-disney-parks",
+  "flex-rec",
+]);
+
+/** Tags that should be expanded to natural language */
+const TAG_EXPANSIONS: Record<string, string> = {
+  "thrill-rides": "thrilling exciting high speed adrenaline",
+  "thrill-rides-rec": "thrilling exciting high speed adrenaline",
+  "slow-rides": "gentle relaxed calm leisurely scenic",
+  "slow-rides-rec": "gentle relaxed calm leisurely scenic",
+  "big-drops": "big drops falling plunging steep descent",
+  "small-drops": "small drops mild descent",
+  dark: "dark ride indoor darkness",
+  spinning: "spinning rotating twisting",
+  "water-rides": "water ride splash wet getting wet",
+  "indoor-attractions": "indoor air conditioned covered",
+  "outdoor-attractions": "outdoor outside",
+  "disney-classics": "classic nostalgic iconic legendary",
+  "park-classics-rec": "classic nostalgic iconic",
+  "experiences-for-little-ones-rec": "toddler friendly young children gentle",
+  "character-meet": "meet character photo opportunity autograph",
+  "character-dining": "dining with characters meet characters during meal",
+};
+
 function buildAttractionText(attr: DisneyAttraction): string[] {
   const parts: string[] = [];
 
@@ -82,26 +117,52 @@ function buildAttractionText(attr: DisneyAttraction): string[] {
     parts.push(attr.experienceType);
   }
 
-  // Thrill level helps distinguish ride types
-  if (attr.thrillLevel) {
-    parts.push(`${attr.thrillLevel} thrill level`);
+  // Thrill level with stronger semantic signals
+  if (attr.thrillLevel === "thrill") {
+    parts.push("thrilling exciting high intensity adrenaline rush");
+  } else if (attr.thrillLevel === "moderate") {
+    parts.push("moderate intensity some thrills");
+  } else if (attr.thrillLevel === "family") {
+    parts.push("family friendly gentle all ages");
   }
 
-  // Height requirement context
+  // Height requirement with semantic context
   if (attr.heightRequirement) {
-    parts.push(`height requirement ${attr.heightRequirement.inches} inches`);
+    const inches = attr.heightRequirement.inches;
+    parts.push(`height requirement ${inches} inches`);
+    if (inches >= 48) {
+      parts.push("tall riders older children teens adults");
+    } else if (inches >= 40) {
+      parts.push("medium height requirement school age");
+    }
+  } else {
+    parts.push("no height requirement any height");
   }
 
-  // Tags contain rich categorical info
-  if (attr.tags.length > 0) {
-    parts.push(attr.tags.join(", "));
+  // Process tags: filter noise and expand semantic meaning
+  const semanticTags: string[] = [];
+  for (const tag of attr.tags) {
+    if (NOISE_TAGS.has(tag)) continue;
+    if (tag.includes("-inches-")) continue; // Height duplicates
+
+    const expansion = TAG_EXPANSIONS[tag];
+    if (expansion) {
+      semanticTags.push(expansion);
+    } else if (!tag.includes("-rec") && !/^[a-z]+-[a-z]+-[a-z]+$/.exec(tag)) {
+      // Keep simple tags, filter complex internal ones
+      semanticTags.push(tag.replace(/-/g, " "));
+    }
+  }
+
+  if (semanticTags.length > 0) {
+    parts.push(semanticTags.join(". "));
   }
 
   // Accessibility features
-  if (attr.singleRider) parts.push("single rider available");
-  if (attr.virtualQueue) parts.push("virtual queue");
+  if (attr.singleRider) parts.push("single rider line available shorter wait");
+  if (attr.virtualQueue) parts.push("virtual queue available");
   if (attr.lightningLane?.available) {
-    parts.push(`Lightning Lane ${attr.lightningLane.tier}`);
+    parts.push(`Lightning Lane ${attr.lightningLane.tier} skip the line`);
   }
 
   return parts;

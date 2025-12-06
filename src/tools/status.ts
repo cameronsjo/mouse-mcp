@@ -7,6 +7,7 @@
 import type { ToolDefinition, ToolHandler } from "./types.js";
 import { getSessionManager } from "../clients/index.js";
 import { getDatabaseStats, getCacheStats, getEntityCounts } from "../db/index.js";
+import { getEmbeddingStats } from "../vectordb/index.js";
 
 export const definition: ToolDefinition = {
   name: "status",
@@ -31,6 +32,7 @@ export const handler: ToolHandler = async (args) => {
   const sessionManager = getSessionManager();
   const dbStats = await getDatabaseStats();
   const cacheStats = await getCacheStats();
+  const embeddingStats = await getEmbeddingStats();
 
   // Get session status for each destination
   const wdwSession = await sessionManager.getSessionStatus("wdw");
@@ -65,6 +67,11 @@ export const handler: ToolHandler = async (args) => {
       entityCount: dbStats.entityCount,
       cacheEntries: dbStats.cacheEntries,
       sizeKb: Math.round(dbStats.dbSizeBytes / 1024),
+    },
+    embeddings: {
+      total: embeddingStats.total,
+      ready: embeddingStats.total >= dbStats.entityCount,
+      byModel: embeddingStats.byModel,
     },
     health: {
       databaseHealthy: dbStats.entityCount >= 0,
