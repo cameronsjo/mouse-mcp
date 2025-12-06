@@ -9,7 +9,6 @@ import { randomUUID } from "node:crypto";
 import express, { type Request, type Response, type Application } from "express";
 import type { Server as HttpServer } from "node:http";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
-import { createMcpExpressApp } from "@modelcontextprotocol/sdk/server/express.js";
 import { isInitializeRequest } from "@modelcontextprotocol/sdk/types.js";
 import type { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { createLogger } from "../shared/index.js";
@@ -45,16 +44,14 @@ export class McpHttpServer implements HttpServerInstance {
       resumability: this.config.resumability,
     });
 
-    // Create Express app with DNS rebinding protection
-    this.app = createMcpExpressApp({
-      host: this.config.host,
-    });
+    // Create Express app
+    this.app = express();
 
     // Parse JSON bodies
     this.app.use(express.json());
 
     // CORS headers for web clients
-    this.app.use((_req: Request, res: Response, next) => {
+    this.app.use((req: Request, res: Response, next) => {
       res.setHeader("Access-Control-Allow-Origin", "*");
       res.setHeader("Access-Control-Allow-Methods", "GET, POST, DELETE, OPTIONS");
       res.setHeader(
@@ -62,12 +59,14 @@ export class McpHttpServer implements HttpServerInstance {
         "Content-Type, MCP-Session-Id, MCP-Protocol-Version"
       );
       res.setHeader("Access-Control-Expose-Headers", "MCP-Session-Id");
-      next();
-    });
 
-    // Handle OPTIONS preflight requests
-    this.app.options("*", (_req: Request, res: Response) => {
-      res.sendStatus(204);
+      // Handle OPTIONS preflight requests
+      if (req.method === "OPTIONS") {
+        res.sendStatus(204);
+        return;
+      }
+
+      next();
     });
 
     // Health check endpoint
