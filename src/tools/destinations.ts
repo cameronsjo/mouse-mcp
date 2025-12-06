@@ -1,5 +1,5 @@
 /**
- * disney_destinations Tool
+ * list_parks Tool
  *
  * Lists all supported Disney destinations with their parks.
  */
@@ -10,11 +10,11 @@ import { cacheGet, cacheSet } from "../db/index.js";
 import type { DisneyDestination } from "../types/index.js";
 
 export const definition: ToolDefinition = {
-  name: "disney_destinations",
+  name: "list_parks",
   description:
-    "List all supported Disney destinations (Walt Disney World, Disneyland) " +
-    "with their parks, timezones, and locations. Use this to discover available " +
-    "parks before querying attractions or dining.",
+    "List all Disney parks with their IDs, names, and locations. " +
+    "Returns Walt Disney World (wdw) and Disneyland Resort (dlr) with their theme parks. " +
+    "Use park IDs from this response when filtering attractions or dining.",
   inputSchema: {
     type: "object" as const,
     properties: {},

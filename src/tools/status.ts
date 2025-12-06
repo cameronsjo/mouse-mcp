@@ -1,5 +1,5 @@
 /**
- * disney_status Tool
+ * status Tool
  *
  * Get server health status and cache statistics.
  */
@@ -9,9 +9,9 @@ import { getSessionManager } from "../clients/index.js";
 import { getDatabaseStats, getCacheStats, getEntityCounts } from "../db/index.js";
 
 export const definition: ToolDefinition = {
-  name: "disney_status",
+  name: "status",
   description:
-    "Get server health status and cache statistics. " +
+    "Get server health status, session state, and cache statistics. " +
     "Useful for debugging data freshness and connectivity issues.",
   inputSchema: {
     type: "object" as const,

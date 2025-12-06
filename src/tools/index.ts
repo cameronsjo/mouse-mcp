@@ -9,7 +9,8 @@ import type { ToolEntry, ToolDefinition, ToolHandler, ToolResult } from "./types
 import * as destinations from "./destinations.js";
 import * as attractions from "./attractions.js";
 import * as dining from "./dining.js";
-import * as entity from "./entity.js";
+import * as search from "./search.js";
+import * as discover from "./discover.js";
 import * as status from "./status.js";
 import * as sync from "./sync.js";
 
@@ -20,7 +21,8 @@ const tools: ToolEntry[] = [
   { definition: destinations.definition, handler: destinations.handler },
   { definition: attractions.definition, handler: attractions.handler },
   { definition: dining.definition, handler: dining.handler },
-  { definition: entity.definition, handler: entity.handler },
+  { definition: search.definition, handler: search.handler },
+  { definition: discover.definition, handler: discover.handler },
   { definition: status.definition, handler: status.handler },
   { definition: sync.definition, handler: sync.handler },
 ];

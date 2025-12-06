@@ -1,5 +1,5 @@
 /**
- * disney_dining Tool
+ * find_dining Tool
  *
  * Get dining locations for a Disney destination or park.
  */
@@ -10,12 +10,12 @@ import { formatErrorResponse, ValidationError } from "../shared/index.js";
 import type { DisneyDining, DestinationId, MealPeriod } from "../types/index.js";
 
 export const definition: ToolDefinition = {
-  name: "disney_dining",
+  name: "find_dining",
   description:
-    "Get dining locations for a Disney destination or specific park. " +
+    "Find dining locations at Disney parks with filters. " +
     "Returns restaurant metadata including service type, meal periods, " +
     "cuisine, price range, and reservation requirements. " +
-    "Use disney_destinations first to get valid destination and park IDs.",
+    "Use list_parks first to get valid destination and park IDs.",
   inputSchema: {
     type: "object" as const,
     properties: {
@@ -26,8 +26,7 @@ export const definition: ToolDefinition = {
       },
       parkId: {
         type: "string",
-        description:
-          "Optional: Filter to a specific park by ID. " + "Get park IDs from disney_destinations.",
+        description: "Filter to a specific park by ID. Get park IDs from list_parks.",
       },
       filters: {
         type: "object",

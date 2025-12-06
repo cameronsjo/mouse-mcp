@@ -10,6 +10,7 @@ import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { mkdir } from "node:fs/promises";
 import { createLogger } from "../shared/logger.js";
+import { escapeSqlIdentifier, escapeSqlValue } from "./sql-escaping.js";
 
 const logger = createLogger("LanceDB");
 
@@ -115,7 +116,8 @@ export async function saveEmbedding(record: EmbeddingRecord): Promise<void> {
   // Upsert: delete existing + insert new
   // LanceDB merge insert requires scanning, so we delete first for small datasets
   try {
-    await table.delete(`id = '${record.id}' AND model = '${record.model}'`);
+    const deleteClause = `${escapeSqlIdentifier("id")} = '${escapeSqlValue(record.id)}' AND ${escapeSqlIdentifier("model")} = '${escapeSqlValue(record.model)}'`;
+    await table.delete(deleteClause);
   } catch {
     // Ignore delete errors (record might not exist)
   }
@@ -143,7 +145,10 @@ export async function saveEmbeddingsBatch(records: EmbeddingRecord[]): Promise<v
   const table = await conn.openTable(TABLE_NAME);
 
   // Delete existing records for these IDs/models
-  const deleteConditions = records.map((r) => `(id = '${r.id}' AND model = '${r.model}')`);
+  const deleteConditions = records.map(
+    (r) =>
+      `(${escapeSqlIdentifier("id")} = '${escapeSqlValue(r.id)}' AND ${escapeSqlIdentifier("model")} = '${escapeSqlValue(r.model)}')`
+  );
 
   // Delete in chunks to avoid query length limits
   const CHUNK_SIZE = 50;
@@ -169,11 +174,8 @@ export async function getEmbedding(
 ): Promise<EmbeddingRecord | null> {
   try {
     const table = await getTable();
-    const results = await table
-      .query()
-      .where(`id = '${entityId}' AND model = '${model}'`)
-      .limit(1)
-      .toArray();
+    const whereClause = `${escapeSqlIdentifier("id")} = '${escapeSqlValue(entityId)}' AND ${escapeSqlIdentifier("model")} = '${escapeSqlValue(model)}'`;
+    const results = await table.query().where(whereClause).limit(1).toArray();
 
     if (results.length === 0) return null;
 
@@ -216,10 +218,14 @@ export async function vectorSearch(
   try {
     const table = await getTable();
 
-    // Build filter for model + optional filters
-    const filters: string[] = [`model = '${model}'`];
-    if (entityType) filters.push(`entityType = '${entityType}'`);
-    if (destinationId) filters.push(`destinationId = '${destinationId}'`);
+    // Build filter for model + optional filters using proper SQL escaping
+    const filters: string[] = [`${escapeSqlIdentifier("model")} = '${escapeSqlValue(model)}'`];
+    if (entityType) {
+      filters.push(`${escapeSqlIdentifier("entityType")} = '${escapeSqlValue(entityType)}'`);
+    }
+    if (destinationId) {
+      filters.push(`${escapeSqlIdentifier("destinationId")} = '${escapeSqlValue(destinationId)}'`);
+    }
 
     const whereClause = filters.join(" AND ");
 
@@ -269,7 +275,9 @@ export async function getEmbeddingStats(): Promise<{
 export async function deleteEmbedding(entityId: string, model?: string): Promise<void> {
   try {
     const table = await getTable();
-    const whereClause = model ? `id = '${entityId}' AND model = '${model}'` : `id = '${entityId}'`;
+    const whereClause = model
+      ? `${escapeSqlIdentifier("id")} = '${escapeSqlValue(entityId)}' AND ${escapeSqlIdentifier("model")} = '${escapeSqlValue(model)}'`
+      : `${escapeSqlIdentifier("id")} = '${escapeSqlValue(entityId)}'`;
     await table.delete(whereClause);
   } catch (error) {
     if (error instanceof Error && error.message === "TABLE_NOT_EXISTS") {
@@ -286,7 +294,9 @@ export async function deleteEmbedding(entityId: string, model?: string): Promise
 export async function deleteEmbeddingsByDestination(destinationId: string): Promise<void> {
   try {
     const table = await getTable();
-    await table.delete(`destinationId = '${destinationId}'`);
+    await table.delete(
+      `${escapeSqlIdentifier("destinationId")} = '${escapeSqlValue(destinationId)}'`
+    );
     logger.info("Deleted embeddings for destination", { destinationId });
   } catch (error) {
     if (error instanceof Error && error.message === "TABLE_NOT_EXISTS") {

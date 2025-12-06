@@ -1,5 +1,5 @@
 /**
- * disney_attractions Tool
+ * find_attractions Tool
  *
  * Get attractions for a Disney destination or park with metadata.
  */
@@ -10,12 +10,12 @@ import { formatErrorResponse, ValidationError } from "../shared/index.js";
 import type { DisneyAttraction, DestinationId } from "../types/index.js";
 
 export const definition: ToolDefinition = {
-  name: "disney_attractions",
+  name: "find_attractions",
   description:
-    "Get attractions for a Disney destination or specific park. " +
+    "Find attractions at Disney parks with filters. " +
     "Returns ride metadata including height requirements, Lightning Lane status, " +
-    "thrill level, single rider availability, and more. " +
-    "Use disney_destinations first to get valid destination and park IDs.",
+    "thrill level, and single rider availability. " +
+    "Use list_parks first to get valid destination and park IDs.",
   inputSchema: {
     type: "object" as const,
     properties: {
@@ -27,8 +27,8 @@ export const definition: ToolDefinition = {
       parkId: {
         type: "string",
         description:
-          "Optional: Filter to a specific park by ID (e.g., '80007944' for Magic Kingdom). " +
-          "Get park IDs from disney_destinations.",
+          "Filter to a specific park by ID (e.g., '80007944' for Magic Kingdom). " +
+          "Get park IDs from list_parks.",
       },
       filters: {
         type: "object",

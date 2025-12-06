@@ -1,7 +1,7 @@
 /**
- * disney_entity Tool
+ * search Tool
  *
- * Look up a specific Disney entity by ID, fuzzy name search, or semantic search.
+ * Look up Disney entities by ID or fuzzy name matching.
  */
 
 import type { ToolDefinition, ToolHandler } from "./types.js";
@@ -14,18 +14,14 @@ import {
   getDining,
   getShows,
 } from "../db/index.js";
-import { semanticSearch } from "../embeddings/search.js";
 import type { DisneyEntity, DestinationId, EntityType } from "../types/index.js";
 
-type SearchMode = "fuzzy" | "semantic";
-
 export const definition: ToolDefinition = {
-  name: "disney_entity",
+  name: "search",
   description:
-    "Look up a specific Disney entity (attraction, restaurant, etc.) by ID or name. " +
-    "Supports fuzzy name matching for exact queries like 'Space Mountain', and " +
-    "semantic search for conceptual queries like 'thrill rides for teenagers' or " +
-    "'romantic dinner spots'. Returns detailed entity information with alternatives.",
+    "Search for Disney entities by ID or name. " +
+    "Uses fuzzy matching for name queries like 'Space Mountain' or 'Be Our Guest'. " +
+    "For conceptual queries like 'thrill rides' or 'romantic dinner', use discover instead.",
   inputSchema: {
     type: "object" as const,
     properties: {
@@ -35,7 +31,7 @@ export const definition: ToolDefinition = {
       },
       name: {
         type: "string",
-        description: "Entity name or query for search (e.g., 'Space Mountain', 'thrill rides')",
+        description: "Entity name to search for (e.g., 'Space Mountain', 'Haunted Mansion')",
       },
       destination: {
         type: "string",
@@ -47,12 +43,6 @@ export const definition: ToolDefinition = {
         description: "Filter by entity type",
         enum: ["ATTRACTION", "RESTAURANT", "SHOW"],
       },
-      searchMode: {
-        type: "string",
-        description:
-          "Search mode: 'fuzzy' for name matching (default), 'semantic' for meaning-based vector search",
-        enum: ["fuzzy", "semantic"],
-      },
     },
     required: [],
   },
@@ -63,7 +53,6 @@ export const handler: ToolHandler = async (args) => {
   const name = args.name as string | undefined;
   const destination = args.destination as DestinationId | undefined;
   const entityType = args.entityType as EntityType | undefined;
-  const searchMode = (args.searchMode as SearchMode | undefined) ?? "fuzzy";
 
   // Require either id or name
   if (!id && !name) {
@@ -107,68 +96,7 @@ export const handler: ToolHandler = async (args) => {
       return formatEntityResult(entity);
     }
 
-    // Semantic search mode
-    if (name && searchMode === "semantic") {
-      const results = await semanticSearch<DisneyEntity>(name, {
-        destinationId: destination,
-        entityType,
-        limit: 5,
-        minScore: 0.3,
-      });
-
-      if (results.length === 0) {
-        return {
-          content: [
-            {
-              type: "text" as const,
-              text: JSON.stringify(
-                {
-                  query: name,
-                  searchMode: "semantic",
-                  found: false,
-                  message:
-                    "No semantically similar entities found. Try fuzzy search or ensure data is loaded.",
-                },
-                null,
-                2
-              ),
-            },
-          ],
-        };
-      }
-
-      const bestMatch = results[0]!;
-      const alternatives = results.slice(1);
-
-      return {
-        content: [
-          {
-            type: "text" as const,
-            text: JSON.stringify(
-              {
-                query: name,
-                searchMode: "semantic",
-                found: true,
-                confidence: Math.round(bestMatch.score * 100) / 100,
-                distance: Math.round(bestMatch.distance * 1000) / 1000,
-                bestMatch: formatEntity(bestMatch.entity),
-                alternatives: alternatives.map((r) => ({
-                  name: r.entity.name,
-                  id: r.entity.id,
-                  type: r.entity.entityType,
-                  score: Math.round(r.score * 100) / 100,
-                  distance: Math.round(r.distance * 1000) / 1000,
-                })),
-              },
-              null,
-              2
-            ),
-          },
-        ],
-      };
-    }
-
-    // Fuzzy name search (default)
+    // Fuzzy name search
     if (name) {
       // First try fuzzy search in database
       let candidates = await searchEntitiesByName<DisneyEntity>(name, {
@@ -234,9 +162,8 @@ export const handler: ToolHandler = async (args) => {
               text: JSON.stringify(
                 {
                   query: name,
-                  searchMode: "fuzzy",
                   found: false,
-                  message: "No matching entities found",
+                  message: "No matching entities found. Try discover for conceptual searches.",
                 },
                 null,
                 2
@@ -247,6 +174,8 @@ export const handler: ToolHandler = async (args) => {
       }
 
       // Return best match with alternatives
+      // WHY: Safe to assert - we checked matches.length > 0 above
+      // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
       const bestMatch = matches[0]!;
       const alternatives = matches.slice(1);
 
@@ -257,7 +186,6 @@ export const handler: ToolHandler = async (args) => {
             text: JSON.stringify(
               {
                 query: name,
-                searchMode: "fuzzy",
                 found: true,
                 confidence: Math.round(bestMatch.score * 100) / 100,
                 bestMatch: formatEntity(bestMatch.entity),

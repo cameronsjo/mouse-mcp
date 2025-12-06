@@ -1,5 +1,5 @@
 /**
- * disney_sync Tool
+ * initialize Tool
  *
  * Preloads all entity data and generates embeddings for semantic search.
  */
@@ -12,11 +12,11 @@ import { getEmbeddingProvider } from "../embeddings/index.js";
 import type { DestinationId } from "../types/index.js";
 
 export const definition: ToolDefinition = {
-  name: "disney_sync",
+  name: "initialize",
   description:
-    "Preload all Disney park data (attractions, dining, shows, shops, events) and generate embeddings " +
-    "for semantic search. Call this once to initialize the system for fast queries. " +
-    "Returns statistics about loaded entities and embeddings.",
+    "Initialize the server by loading all Disney park data and generating embeddings for semantic search. " +
+    "Call this once before using discover for meaning-based queries. " +
+    "Returns statistics about loaded entities and embedding generation progress.",
   inputSchema: {
     type: "object" as const,
     properties: {
@@ -125,7 +125,7 @@ export const handler: ToolHandler = async (args) => {
               stats,
               note:
                 stats.embeddings.total < totalEntities
-                  ? "Embeddings are still generating in the background. Run disney_status to check progress."
+                  ? "Embeddings are still generating in the background. Run status to check progress."
                   : "All embeddings ready for semantic search.",
             },
             null,
