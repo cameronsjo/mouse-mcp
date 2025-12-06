@@ -91,5 +91,6 @@ export class OpenAIEmbeddingProvider implements EmbeddingProvider {
 
 interface OpenAIEmbeddingResponse {
   data: Array<{ embedding: number[]; index: number }>;
+  // eslint-disable-next-line @typescript-eslint/naming-convention
   usage?: { total_tokens: number };
 }

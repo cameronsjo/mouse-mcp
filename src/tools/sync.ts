@@ -22,7 +22,8 @@ export const definition: ToolDefinition = {
     properties: {
       destination: {
         type: "string",
-        description: "Sync specific destination. Currently only 'wdw' (Walt Disney World) is supported.",
+        description:
+          "Sync specific destination. Currently only 'wdw' (Walt Disney World) is supported.",
         enum: ["wdw"],
       },
       skipEmbeddings: {
@@ -31,7 +32,8 @@ export const definition: ToolDefinition = {
       },
       force: {
         type: "boolean",
-        description: "Force fresh fetch from API, bypassing cache. Use to retry Disney API after session established.",
+        description:
+          "Force fresh fetch from API, bypassing cache. Use to retry Disney API after session established.",
       },
     },
     required: [],
@@ -49,6 +51,7 @@ export const handler: ToolHandler = async (args) => {
 
   try {
     const client = getDisneyFinderClient();
+    const byModel: Record<string, number> = {};
     const stats = {
       destinations: [] as string[],
       attractions: 0,
@@ -58,7 +61,7 @@ export const handler: ToolHandler = async (args) => {
       events: 0,
       embeddings: {
         total: 0,
-        byModel: {} as Record<string, number>,
+        byModel,
       },
       provider: "",
       timing: {

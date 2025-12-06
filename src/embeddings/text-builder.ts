@@ -10,6 +10,8 @@ import type {
   DisneyAttraction,
   DisneyDining,
   DisneyShow,
+  DisneyShop,
+  DisneyEvent,
   DisneyHotel,
 } from "../types/index.js";
 
@@ -44,6 +46,16 @@ export function buildEmbeddingText(entity: DisneyEntity): string {
       break;
     case "HOTEL":
       parts.push(...buildHotelText(entity as DisneyHotel));
+      break;
+    case "SHOP":
+      parts.push(...buildShopText(entity as DisneyShop));
+      break;
+    case "EVENT":
+      parts.push(...buildEventText(entity as DisneyEvent));
+      break;
+    case "DESTINATION":
+    case "PARK":
+      // These entity types use only base fields (name, parkName)
       break;
   }
 
@@ -169,6 +181,48 @@ function buildShowText(show: DisneyShow): string[] {
 
   if (show.tags.length > 0) {
     parts.push(show.tags.join(", "));
+  }
+
+  return parts;
+}
+
+function buildShopText(shop: DisneyShop): string[] {
+  const parts: string[] = [];
+
+  if (shop.shopType) {
+    const typeMap: Record<string, string> = {
+      merchandise: "merchandise shopping",
+      apparel: "apparel clothing fashion",
+      gifts: "gifts souvenirs",
+      specialty: "specialty unique items",
+      other: "shop store",
+    };
+    parts.push(typeMap[shop.shopType] ?? shop.shopType);
+  }
+
+  if (shop.tags.length > 0) {
+    parts.push(shop.tags.join(", "));
+  }
+
+  return parts;
+}
+
+function buildEventText(event: DisneyEvent): string[] {
+  const parts: string[] = [];
+
+  if (event.eventType) {
+    const typeMap: Record<string, string> = {
+      "special-event": "special event limited time",
+      tour: "guided tour experience",
+      extra: "extra magic special access",
+      seasonal: "seasonal holiday celebration",
+      other: "event experience",
+    };
+    parts.push(typeMap[event.eventType] ?? event.eventType);
+  }
+
+  if (event.tags.length > 0) {
+    parts.push(event.tags.join(", "));
   }
 
   return parts;

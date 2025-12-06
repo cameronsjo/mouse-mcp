@@ -5,7 +5,7 @@
  * Manages session lifecycle with daily refresh.
  */
 
-import { chromium, type Browser, type BrowserContext } from "playwright";
+import { chromium, type Browser, type BrowserContext, type Page } from "playwright";
 import { createLogger } from "../shared/index.js";
 import { getConfig } from "../config/index.js";
 import {
@@ -267,7 +267,7 @@ export class SessionManager {
     return this.browser;
   }
 
-  private async handleCookieConsent(page: import("playwright").Page): Promise<void> {
+  private async handleCookieConsent(page: Page): Promise<void> {
     // Wait a bit for consent banner to appear
     await page.waitForTimeout(2000);
 
@@ -406,7 +406,8 @@ export class SessionManager {
       try {
         const payload = JSON.parse(
           Buffer.from(authCookie.value.split(".")[1] ?? "", "base64").toString()
-        );
+          // eslint-disable-next-line @typescript-eslint/naming-convention
+        ) as { iat?: number; expires_in?: string };
         // payload.iat is when token was issued, expires_in is seconds
         if (payload.iat && payload.expires_in) {
           const expiresAtMs = (payload.iat + parseInt(payload.expires_in, 10)) * 1000;
@@ -470,8 +471,6 @@ export class SessionManager {
 let instance: SessionManager | null = null;
 
 export function getSessionManager(): SessionManager {
-  if (!instance) {
-    instance = new SessionManager();
-  }
+  instance ??= new SessionManager();
   return instance;
 }

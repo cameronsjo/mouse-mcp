@@ -4,9 +4,10 @@ Research for implementing MCP authorization in mouse-mcp for cloud deployment.
 
 ## Status
 
-- **Status:** Research
+- **Status:** Decided
 - **Priority:** P1
 - **Blocking:** Cloud deployment, multi-tenant support
+- **Decided:** 2025-12-06
 
 ---
 
@@ -28,16 +29,16 @@ Research for implementing MCP authorization in mouse-mcp for cloud deployment.
 
 | Item | Priority | Question | Status |
 |------|----------|----------|--------|
-| CIMD vs DCR decision | p1 | Should we implement CIMD (new default), DCR (legacy), or both? | Open |
-| Authorization server choice | p1 | Self-hosted (complex) vs delegated (Auth0, Cognito, Logto)? | Open |
-| Scope design | p1 | What scopes should mouse-mcp define? | Proposed |
-| Token storage | p1 | How to securely store tokens on server side? Memory vs encrypted DB | Open |
-| Step-up authorization | p2 | How to handle insufficient_scope (403) and request additional permissions? | Open |
-| Enterprise SSO | p2 | Should we support Cross App Access / ID-JAG for enterprise deployments? | Open |
-| Token introspection | p2 | Use `/introspect` endpoint or validate JWTs locally? Tradeoffs? | Open |
-| Refresh token handling | p2 | How long should sessions last? Rotation policy? | Open |
-| SSRF protection for CIMD | p2 | How to safely fetch client metadata URLs without SSRF vulnerabilities? | Open |
-| localhost redirect security | p3 | How to handle desktop clients with localhost redirects securely? | Open |
+| CIMD vs DCR decision | p1 | Should we implement CIMD (new default), DCR (legacy), or both? | **Decided** |
+| Authorization server choice | p1 | Self-hosted (complex) vs delegated (Auth0, Cognito, Logto)? | **Decided** |
+| Scope design | p1 | What scopes should mouse-mcp define? | **Decided** |
+| Token storage | p1 | How to securely store tokens on server side? Memory vs encrypted DB | **Decided** |
+| Step-up authorization | p2 | How to handle insufficient_scope (403) and request additional permissions? | **Decided** |
+| Enterprise SSO | p2 | Should we support Cross App Access / ID-JAG for enterprise deployments? | **Decided** |
+| Token introspection | p2 | Use `/introspect` endpoint or validate JWTs locally? Tradeoffs? | **Decided** |
+| Refresh token handling | p2 | How long should sessions last? Rotation policy? | **Decided** |
+| SSRF protection for CIMD | p2 | How to safely fetch client metadata URLs without SSRF vulnerabilities? | **Decided** |
+| localhost redirect security | p3 | How to handle desktop clients with localhost redirects securely? | **Decided** |
 
 ---
 
@@ -66,16 +67,128 @@ Research for implementing MCP authorization in mouse-mcp for cloud deployment.
 3. DCR-based approach
 4. User-provided client details
 
-### Authorization Server Options
+### Authorization Server Decision
 
-| Option | Pros | Cons | Cost |
-|--------|------|------|------|
-| **Auth0** | Full-featured, MCP docs available | Vendor lock-in, cost at scale | Free tier → $23/mo |
-| **AWS Cognito** | AWS integration, cheap | Complex setup, less MCP-specific docs | ~$0.0055/MAU |
-| **Logto** | Open source, MCP guide available | Self-hosted complexity | Free (self-host) |
-| **Self-built** | Full control | High effort, security risk | Dev time |
+**Decision:** Use **Logto (self-hosted)** on Fly.io.
 
-**Recommendation:** Auth0 or Logto for fastest path to production.
+**Comparison Summary:**
+
+| Factor | Auth0 | AWS Cognito | Logto (Self-Hosted) |
+|--------|-------|-------------|---------------------|
+| Free tier | 7,500 MAU | 50,000 MAU | Unlimited |
+| MCP OAuth 2.1 | Excellent | Good | Excellent |
+| PKCE S256 | ✅ | ✅ | ✅ |
+| Resource Indicators | ✅ | ❌ (workaround) | ✅ |
+| Self-hosted option | ❌ | ❌ | ✅ |
+| Vendor lock-in | High | Medium | None |
+| Monthly cost | ~$23+ | ~$0-15 | ~$15-20 (infra) |
+
+**Rationale:**
+
+- $0 licensing cost, only pay for infrastructure (~$15-20/month on Fly.io)
+- Full RFC 8707 Resource Indicators support (required by MCP spec)
+- No vendor lock-in - portable if needs change
+- Built-in PKCE, JWKS, token introspection
+- Docker deployment = easy Fly.io integration
+
+### Token Storage Decision
+
+**Decision:** In-memory with optional Redis for multi-instance.
+
+**Rationale:**
+
+- Access tokens are short-lived (15-30 min) - memory is fine for single instance
+- Refresh tokens stored client-side per OAuth 2.0 spec
+- For horizontal scaling, add Redis session store
+- No need to persist tokens server-side if using JWT validation
+
+### Token Validation Decision
+
+**Decision:** Local JWT validation with JWKS caching.
+
+**Rationale:**
+
+- Faster than token introspection (no network call)
+- JWKS from Logto cached locally (refresh on 401)
+- Short token lifetimes (15-30 min) mitigate revocation delay
+- Use introspection only for high-security operations
+
+### Scope Design Decision
+
+**Decision:** Adopt proposed scopes as-is.
+
+| Scope | Tools | Notes |
+|-------|-------|-------|
+| `disney:read` | disney_entity, disney_attractions, disney_dining, disney_destinations | Default scope |
+| `disney:sync` | disney_sync | Refresh data from APIs |
+| `disney:status` | disney_status | Health/status checks |
+| `disney:admin` | (future) | Reserved for admin ops |
+
+### Step-Up Authorization Decision
+
+**Decision:** Implement standard 403 + WWW-Authenticate flow.
+
+**Flow:**
+
+1. Client requests tool requiring `disney:sync` but only has `disney:read`
+2. Server returns 403 with `WWW-Authenticate: Bearer scope="disney:sync"`
+3. Client initiates new auth flow requesting additional scope
+4. User consents to additional scope
+5. Client retries with new token
+
+### Enterprise SSO Decision
+
+**Decision:** Defer to Phase 4+. Not needed for initial release.
+
+**Rationale:**
+
+- Cross App Access / ID-JAG adds complexity
+- No enterprise customers yet
+- Logto supports SAML/OIDC federation when needed
+
+### Refresh Token Decision
+
+**Decision:** 7-day refresh tokens with rotation.
+
+**Policy:**
+
+- Access token: 30 minutes
+- Refresh token: 7 days
+- Rotation: Issue new refresh token on each use
+- Absolute lifetime: 30 days (re-auth required)
+
+### SSRF Protection Decision
+
+**Decision:** Allowlist-based URL validation for CIMD.
+
+**Implementation:**
+
+```typescript
+const ALLOWED_CIMD_HOSTS = [
+  "claude.ai",
+  "anthropic.com",
+  // Add trusted MCP clients as needed
+];
+
+function validateCimdUrl(url: string): boolean {
+  const parsed = new URL(url);
+  // Block private IPs
+  if (isPrivateIP(parsed.hostname)) return false;
+  // Check allowlist (or implement trust-on-first-use)
+  return ALLOWED_CIMD_HOSTS.some(host => parsed.hostname.endsWith(host));
+}
+```
+
+### Localhost Redirect Decision
+
+**Decision:** Allow localhost redirects for development/desktop clients with port validation.
+
+**Policy:**
+
+- Allow `http://localhost:*` and `http://127.0.0.1:*` redirects
+- Validate port is in valid range (1024-65535)
+- Production deployments MUST use HTTPS redirects
+- Document security implications in client developer guide
 
 ---
 

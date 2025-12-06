@@ -282,7 +282,9 @@ export const handler: ToolHandler = async (args) => {
   }
 };
 
-function formatEntityResult(entity: DisneyEntity) {
+function formatEntityResult(entity: DisneyEntity): {
+  content: Array<{ type: "text"; text: string }>;
+} {
   return {
     content: [
       {
@@ -300,7 +302,7 @@ function formatEntityResult(entity: DisneyEntity) {
   };
 }
 
-function formatEntity(entity: DisneyEntity) {
+function formatEntity(entity: DisneyEntity): Record<string, unknown> {
   // Return full entity data with normalized field names
   const { entityType, destinationId, parkName, ...rest } = entity;
   return {

@@ -65,9 +65,9 @@ export async function cacheGet<T>(key: string): Promise<CacheEntry<T> | null> {
 /**
  * Set a cached value with TTL.
  */
-export async function cacheSet<T>(
+export async function cacheSet(
   key: string,
-  data: T,
+  data: unknown,
   options: CacheSetOptions = {}
 ): Promise<void> {
   const db = await getDatabase();

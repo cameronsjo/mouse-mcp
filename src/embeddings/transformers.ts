@@ -28,8 +28,10 @@ export class TransformersEmbeddingProvider implements EmbeddingProvider {
   private pipeline: FeatureExtractionPipeline | null = null;
   private loading: Promise<FeatureExtractionPipeline> | null = null;
 
-  // Private constructor - use create() factory
-  private constructor() {}
+  // Private constructor - use create() factory. Empty by design - initialization happens in create()
+  private constructor() {
+    // Intentionally empty - lazy initialization via create() factory method
+  }
 
   /**
    * Factory method to create provider with lazy model loading.

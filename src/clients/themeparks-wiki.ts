@@ -512,7 +512,7 @@ export class ThemeParksWikiClient {
     const price = tags.get("priceRange");
     if (!price) return null;
 
-    const dollarSigns = (price.match(/\$/g) || []).length;
+    const dollarSigns = (price.match(/\$/g) ?? []).length;
     const symbol = ("$".repeat(Math.min(dollarSigns, 4)) || "$") as PriceRange["symbol"];
 
     return {
@@ -533,8 +533,6 @@ export class ThemeParksWikiClient {
 let instance: ThemeParksWikiClient | null = null;
 
 export function getThemeParksWikiClient(): ThemeParksWikiClient {
-  if (!instance) {
-    instance = new ThemeParksWikiClient();
-  }
+  instance ??= new ThemeParksWikiClient();
   return instance;
 }

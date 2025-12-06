@@ -41,7 +41,10 @@ export const handler: ToolHandler = async () => {
   return formatResult(destinations, new Date().toISOString());
 };
 
-function formatResult(destinations: DisneyDestination[], cachedAt: string) {
+function formatResult(
+  destinations: DisneyDestination[],
+  cachedAt: string
+): { content: Array<{ type: "text"; text: string }> } {
   return {
     content: [
       {

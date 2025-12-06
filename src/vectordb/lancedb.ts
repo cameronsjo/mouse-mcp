@@ -280,6 +280,23 @@ export async function deleteEmbedding(entityId: string, model?: string): Promise
 }
 
 /**
+ * Delete all embeddings for a destination.
+ * WHY: Called when entities are deleted to cleanup orphaned embeddings.
+ */
+export async function deleteEmbeddingsByDestination(destinationId: string): Promise<void> {
+  try {
+    const table = await getTable();
+    await table.delete(`destinationId = '${destinationId}'`);
+    logger.info("Deleted embeddings for destination", { destinationId });
+  } catch (error) {
+    if (error instanceof Error && error.message === "TABLE_NOT_EXISTS") {
+      return;
+    }
+    throw error;
+  }
+}
+
+/**
  * Close the database connection.
  */
 export async function closeLanceDB(): Promise<void> {

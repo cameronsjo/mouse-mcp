@@ -12,6 +12,7 @@ import { formatErrorResponse } from "./shared/errors.js";
 import { getToolDefinitions, getTool } from "./tools/index.js";
 import { getSessionManager } from "./clients/index.js";
 import { closeDatabase, cachePurgeExpired } from "./db/index.js";
+import { registerEmbeddingHandlers, removeAllEventListeners } from "./events/index.js";
 
 const logger = createLogger("Server");
 
@@ -25,6 +26,7 @@ const SERVER_VERSION = "1.0.0";
  */
 export class DisneyMcpServer {
   private readonly server: Server;
+  private cleanupEventHandlers?: () => void;
 
   constructor() {
     this.server = new Server(
@@ -89,19 +91,25 @@ export class DisneyMcpServer {
     };
 
     // Graceful shutdown handlers
-    const shutdown = async (signal: string) => {
+    const shutdown = async (signal: string): Promise<void> => {
       logger.info("Shutdown signal received", { signal });
       await this.shutdown();
       process.exit(0);
     };
 
-    process.on("SIGINT", () => shutdown("SIGINT"));
-    process.on("SIGTERM", () => shutdown("SIGTERM"));
+    process.on("SIGINT", () => {
+      void shutdown("SIGINT");
+    });
+    process.on("SIGTERM", () => {
+      void shutdown("SIGTERM");
+    });
 
     // Handle uncaught errors
     process.on("uncaughtException", (error) => {
       logger.error("Uncaught exception", error);
-      this.shutdown().finally(() => process.exit(1));
+      void this.shutdown().finally(() => {
+        process.exit(1);
+      });
     });
 
     process.on("unhandledRejection", (reason) => {
@@ -125,6 +133,11 @@ export class DisneyMcpServer {
     // Purge expired cache entries on startup
     await cachePurgeExpired();
 
+    // Register event handlers for entity lifecycle
+    // WHY: Wire up event subscriptions at startup to enable embedding generation
+    this.cleanupEventHandlers = registerEmbeddingHandlers();
+    logger.debug("Event handlers registered");
+
     // Connect to stdio transport
     const transport = new StdioServerTransport();
     await this.server.connect(transport);
@@ -139,12 +152,21 @@ export class DisneyMcpServer {
     logger.info("Shutting down Disney Parks MCP server");
 
     try {
+      // Cleanup event handlers
+      if (this.cleanupEventHandlers) {
+        this.cleanupEventHandlers();
+        logger.debug("Event handlers unregistered");
+      }
+
+      // Remove all event listeners
+      removeAllEventListeners();
+
       // Shutdown session manager (close browser)
       const sessionManager = getSessionManager();
       await sessionManager.shutdown();
 
       // Close database connection
-      await closeDatabase();
+      closeDatabase();
 
       // Close MCP server
       await this.server.close();

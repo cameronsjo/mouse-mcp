@@ -8,6 +8,7 @@
 import { getDatabase, persistDatabase } from "./database.js";
 import { createLogger } from "../shared/logger.js";
 import { fuzzySearch } from "../shared/fuzzy-match.js";
+import { getEntityEmitter } from "../events/entity-events.js";
 import type {
   DisneyEntity,
   DisneyAttraction,
@@ -22,30 +23,8 @@ import type {
 const logger = createLogger("Entities");
 
 /**
- * Lazy-load embedding functions to avoid circular imports.
- * Embedding generation happens asynchronously after entity save.
- */
-async function generateEmbeddingAsync(entity: DisneyEntity): Promise<void> {
-  try {
-    const { ensureEmbedding } = await import("../embeddings/search.js");
-    await ensureEmbedding(entity);
-  } catch (error) {
-    logger.warn("Failed to generate embedding", { entityId: entity.id, error });
-  }
-}
-
-async function generateEmbeddingsBatchAsync(entities: DisneyEntity[]): Promise<void> {
-  try {
-    const { ensureEmbeddingsBatch } = await import("../embeddings/search.js");
-    await ensureEmbeddingsBatch(entities);
-  } catch (error) {
-    logger.warn("Failed to generate embeddings batch", { count: entities.length, error });
-  }
-}
-
-/**
  * Save an entity (insert or update).
- * Triggers async embedding generation for semantic search.
+ * Emits 'entity:saved' event to trigger async embedding generation.
  */
 export async function saveEntity(entity: DisneyEntity): Promise<void> {
   const db = await getDatabase();
@@ -70,13 +49,14 @@ export async function saveEntity(entity: DisneyEntity): Promise<void> {
 
   persistDatabase();
 
-  // Fire-and-forget embedding generation
-  void generateEmbeddingAsync(entity);
+  // Emit event for embedding generation (fire-and-forget)
+  const emitter = getEntityEmitter();
+  emitter.emitEvent("entity:saved", { entity, timestamp: now });
 }
 
 /**
  * Save multiple entities in a batch.
- * Triggers async batch embedding generation for semantic search.
+ * Emits 'entity:batch-saved' event to trigger async batch embedding generation.
  */
 export async function saveEntities(entities: DisneyEntity[]): Promise<void> {
   const db = await getDatabase();
@@ -104,8 +84,9 @@ export async function saveEntities(entities: DisneyEntity[]): Promise<void> {
   persistDatabase();
   logger.debug("Saved entities", { count: entities.length });
 
-  // Fire-and-forget batch embedding generation
-  void generateEmbeddingsBatchAsync(entities);
+  // Emit event for batch embedding generation (fire-and-forget)
+  const emitter = getEntityEmitter();
+  emitter.emitEvent("entity:batch-saved", { entities, count: entities.length, timestamp: now });
 }
 
 /**
@@ -304,9 +285,11 @@ export async function searchEntitiesByName<T extends DisneyEntity>(
 
 /**
  * Delete all entities for a destination.
+ * Emits 'entity:deleted' event to trigger cleanup of related embeddings.
  */
 export async function deleteEntitiesForDestination(destinationId: DestinationId): Promise<number> {
   const db = await getDatabase();
+  const now = new Date().toISOString();
 
   const countResult = db.exec("SELECT COUNT(*) FROM entities WHERE destination_id = ?", [
     destinationId,
@@ -317,6 +300,13 @@ export async function deleteEntitiesForDestination(destinationId: DestinationId)
   persistDatabase();
 
   logger.info("Deleted entities for destination", { destinationId, count });
+
+  // Emit event for cleanup of embeddings
+  if (count > 0) {
+    const emitter = getEntityEmitter();
+    emitter.emitEvent("entity:deleted", { destinationId, count, timestamp: now });
+  }
+
   return count;
 }
 

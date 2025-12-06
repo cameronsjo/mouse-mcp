@@ -22,9 +22,7 @@ let dbPath: string | null = null;
  * Initializes the database if not already done.
  */
 export async function getDatabase(): Promise<SqlJsDatabase> {
-  if (!db) {
-    db = await initializeDatabase();
-  }
+  db ??= await initializeDatabase();
   return db;
 }
 
