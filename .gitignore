@@ -34,3 +34,4 @@ test-results/
 # OS files
 Thumbs.db
 .logs/
+.claude/reviews/
