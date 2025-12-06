@@ -15,7 +15,8 @@
       "WebFetch(domain:auth0.com)",
       "WebFetch(domain:dev.to)",
       "WebFetch(domain:den.dev)",
-      "WebFetch(domain:www.gentoro.com)"
+      "WebFetch(domain:www.gentoro.com)",
+      "WebFetch(domain:www.npmjs.com)"
     ],
     "deny": [],
     "ask": []

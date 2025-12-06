@@ -8,6 +8,7 @@ import type { ToolDefinition, ToolHandler } from "./types.js";
 import { formatErrorResponse, ValidationError } from "../shared/index.js";
 import { semanticSearch } from "../embeddings/search.js";
 import type { DisneyEntity, DestinationId, EntityType } from "../types/index.js";
+import { discoverOutputSchema, zodToJsonSchema } from "./schemas.js";
 
 export const definition: ToolDefinition = {
   name: "discover",
@@ -42,6 +43,7 @@ export const definition: ToolDefinition = {
     },
     required: ["query"],
   },
+  outputSchema: zodToJsonSchema(discoverOutputSchema),
 };
 
 export const handler: ToolHandler = async (args) => {
@@ -63,49 +65,47 @@ export const handler: ToolHandler = async (args) => {
     });
 
     if (results.length === 0) {
+      const result = {
+        query,
+        found: false,
+        message:
+          "No matching entities found. Run initialize first to load data and generate embeddings.",
+      };
+
       return {
         content: [
           {
             type: "text" as const,
-            text: JSON.stringify(
-              {
-                query,
-                found: false,
-                message:
-                  "No matching entities found. Run initialize first to load data and generate embeddings.",
-              },
-              null,
-              2
-            ),
+            text: JSON.stringify(result, null, 2),
           },
         ],
+        structuredContent: result,
       };
     }
+
+    const result = {
+      query,
+      found: true,
+      count: results.length,
+      results: results.map((r) => ({
+        name: r.entity.name,
+        id: r.entity.id,
+        type: r.entity.entityType,
+        destination: r.entity.destinationId,
+        park: r.entity.parkName,
+        score: Math.round(r.score * 100) / 100,
+        distance: Math.round(r.distance * 1000) / 1000,
+      })),
+    };
 
     return {
       content: [
         {
           type: "text" as const,
-          text: JSON.stringify(
-            {
-              query,
-              found: true,
-              count: results.length,
-              results: results.map((r) => ({
-                name: r.entity.name,
-                id: r.entity.id,
-                type: r.entity.entityType,
-                destination: r.entity.destinationId,
-                park: r.entity.parkName,
-                score: Math.round(r.score * 100) / 100,
-                distance: Math.round(r.distance * 1000) / 1000,
-              })),
-            },
-            null,
-            2
-          ),
+          text: JSON.stringify(result, null, 2),
         },
       ],
+      structuredContent: result,
     };
   } catch (error) {
     return formatErrorResponse(error);

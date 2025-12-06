@@ -13,6 +13,7 @@ export interface ToolDefinition {
     properties: Record<string, unknown>;
     required: string[];
   };
+  outputSchema?: Record<string, unknown>;
 }
 
 /** Tool result format */
@@ -21,6 +22,7 @@ export interface ToolResult {
     type: "text";
     text: string;
   }>;
+  structuredContent?: unknown;
   isError?: boolean;
 }
 

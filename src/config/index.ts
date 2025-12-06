@@ -12,6 +12,8 @@ export type LogLevel = "DEBUG" | "INFO" | "WARN" | "ERROR";
 
 export type EmbeddingProviderType = "openai" | "transformers" | "auto";
 
+export type TransportMode = "stdio" | "http";
+
 export interface Config {
   readonly nodeEnv: "development" | "production" | "test";
   readonly logLevel: LogLevel;
@@ -24,6 +26,14 @@ export interface Config {
   readonly embeddingProvider: EmbeddingProviderType;
   /** OpenAI API key for embeddings (optional) */
   readonly openaiApiKey: string | undefined;
+  /** Transport mode selection */
+  readonly transport: TransportMode;
+  /** HTTP server port (only used when transport is 'http') */
+  readonly httpPort: number;
+  /** HTTP server host (only used when transport is 'http') */
+  readonly httpHost: string;
+  /** Enable HTTP transport resumability (only used when transport is 'http') */
+  readonly httpResumability: boolean;
 }
 
 let cachedConfig: Config | null = null;
@@ -54,6 +64,11 @@ export function getConfig(): Config {
     // Embedding configuration
     embeddingProvider: parseEmbeddingProvider(process.env.MOUSE_MCP_EMBEDDING_PROVIDER),
     openaiApiKey: process.env.OPENAI_API_KEY,
+    // Transport configuration
+    transport: parseTransportMode(process.env.MOUSE_MCP_TRANSPORT),
+    httpPort: parseInt(process.env.MOUSE_MCP_PORT ?? "3000", 10),
+    httpHost: process.env.MOUSE_MCP_HOST ?? "127.0.0.1",
+    httpResumability: process.env.MOUSE_MCP_HTTP_RESUMABILITY === "true",
   };
 
   return cachedConfig;
@@ -89,6 +104,17 @@ function parseEmbeddingProvider(value: string | undefined): EmbeddingProviderTyp
     }
   }
   return "auto";
+}
+
+/**
+ * Parse transport mode from environment.
+ */
+function parseTransportMode(value: string | undefined): TransportMode {
+  if (value === "http") {
+    return "http";
+  }
+  // Default to stdio for backwards compatibility with Claude Desktop
+  return "stdio";
 }
 
 /**

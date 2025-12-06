@@ -8,6 +8,7 @@ import type { ToolDefinition, ToolHandler } from "./types.js";
 import { getDisneyFinderClient } from "../clients/index.js";
 import { formatErrorResponse, ValidationError } from "../shared/index.js";
 import type { DisneyDining, DestinationId, MealPeriod } from "../types/index.js";
+import { findDiningOutputSchema, zodToJsonSchema } from "./schemas.js";
 
 export const definition: ToolDefinition = {
   name: "find_dining",
@@ -65,6 +66,7 @@ export const definition: ToolDefinition = {
     },
     required: ["destination"],
   },
+  outputSchema: zodToJsonSchema(findDiningOutputSchema),
 };
 
 export const handler: ToolHandler = async (args) => {
@@ -86,22 +88,21 @@ export const handler: ToolHandler = async (args) => {
     // Apply filters
     dining = applyFilters(dining, filters);
 
+    const result = {
+      destination,
+      parkId: parkId ?? null,
+      count: dining.length,
+      dining: dining.map(formatDining),
+    };
+
     return {
       content: [
         {
           type: "text" as const,
-          text: JSON.stringify(
-            {
-              destination,
-              parkId: parkId ?? null,
-              count: dining.length,
-              dining: dining.map(formatDining),
-            },
-            null,
-            2
-          ),
+          text: JSON.stringify(result, null, 2),
         },
       ],
+      structuredContent: result,
     };
   } catch (error) {
     return formatErrorResponse(error);

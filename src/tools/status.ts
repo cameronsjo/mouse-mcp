@@ -7,6 +7,7 @@
 import type { ToolDefinition, ToolHandler } from "./types.js";
 import { getSessionManager } from "../clients/index.js";
 import { getDatabaseStats, getCacheStats, getEntityCounts } from "../db/index.js";
+import { statusOutputSchema, zodToJsonSchema } from "./schemas.js";
 
 export const definition: ToolDefinition = {
   name: "status",
@@ -23,6 +24,7 @@ export const definition: ToolDefinition = {
     },
     required: [],
   },
+  outputSchema: zodToJsonSchema(statusOutputSchema),
 };
 
 export const handler: ToolHandler = async (args) => {
@@ -102,5 +104,6 @@ export const handler: ToolHandler = async (args) => {
         text: JSON.stringify(status, null, 2),
       },
     ],
+    structuredContent: status,
   };
 };

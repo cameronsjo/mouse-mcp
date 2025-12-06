@@ -7,13 +7,23 @@
 // Using low-level Server API for fine-grained control over request handling
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
-import { CallToolRequestSchema, ListToolsRequestSchema } from "@modelcontextprotocol/sdk/types.js";
+import {
+  CallToolRequestSchema,
+  ListToolsRequestSchema,
+  ListResourcesRequestSchema,
+  ReadResourceRequestSchema,
+  ListPromptsRequestSchema,
+  GetPromptRequestSchema,
+} from "@modelcontextprotocol/sdk/types.js";
 import { createLogger } from "./shared/index.js";
 import { formatErrorResponse } from "./shared/errors.js";
 import { getToolDefinitions, getTool } from "./tools/index.js";
+import { listResources, readResource } from "./resources/index.js";
+import { getPromptDefinitions, getPromptHandler } from "./prompts/index.js";
 import { getSessionManager } from "./clients/index.js";
 import { closeDatabase, cachePurgeExpired } from "./db/index.js";
 import { registerEmbeddingHandlers, removeAllEventListeners } from "./events/index.js";
+import { McpHttpServer, type HttpTransportConfig } from "./transport/index.js";
 
 const logger = createLogger("Server");
 
@@ -29,6 +39,7 @@ export class DisneyMcpServer {
   // eslint-disable-next-line @typescript-eslint/no-deprecated -- Using low-level Server for fine-grained control
   private readonly server: Server;
   private cleanupEventHandlers?: () => void;
+  private httpServer?: McpHttpServer;
 
   constructor() {
     // eslint-disable-next-line @typescript-eslint/no-deprecated
@@ -40,12 +51,22 @@ export class DisneyMcpServer {
       {
         capabilities: {
           tools: {},
+          resources: {},
+          prompts: {},
         },
       }
     );
 
     this.setupHandlers();
     this.setupErrorHandling();
+  }
+
+  /**
+   * Get the underlying MCP server instance.
+   * WHY: Allows HTTP transport to connect to the same server instance.
+   */
+  getServer(): Server {
+    return this.server;
   }
 
   /**
@@ -81,6 +102,64 @@ export class DisneyMcpServer {
       } catch (error) {
         logger.error("Tool execution failed", error, { tool: name });
         return formatErrorResponse(error) as { content: Array<{ type: "text"; text: string }> };
+      }
+    });
+
+    // List resources handler
+    this.server.setRequestHandler(ListResourcesRequestSchema, async () => {
+      logger.debug("ListResources request");
+      try {
+        const resources = await listResources();
+        return { resources };
+      } catch (error) {
+        logger.error("Failed to list resources", error);
+        throw error;
+      }
+    });
+
+    // Read resource handler
+    this.server.setRequestHandler(ReadResourceRequestSchema, async (request) => {
+      const { uri } = request.params;
+
+      logger.info("Resource read", { uri });
+
+      try {
+        const contents = await readResource(uri);
+        logger.debug("Resource read completed", { uri });
+        return { contents };
+      } catch (error) {
+        logger.error("Resource read failed", error, { uri });
+        throw error;
+      }
+    });
+
+    // List prompts handler
+    this.server.setRequestHandler(ListPromptsRequestSchema, async () => {
+      logger.debug("ListPrompts request");
+      return {
+        prompts: getPromptDefinitions(),
+      };
+    });
+
+    // Get prompt handler
+    this.server.setRequestHandler(GetPromptRequestSchema, async (request) => {
+      const { name, arguments: args } = request.params;
+
+      logger.info("Prompt invocation", { prompt: name });
+
+      const handler = getPromptHandler(name);
+      if (!handler) {
+        logger.warn("Unknown prompt requested", { prompt: name });
+        throw new Error(`Unknown prompt: ${name}`);
+      }
+
+      try {
+        const result = await handler(args ?? {});
+        logger.debug("Prompt completed", { prompt: name });
+        return result;
+      } catch (error) {
+        logger.error("Prompt execution failed", error, { prompt: name });
+        throw error;
       }
     });
   }
@@ -121,14 +200,49 @@ export class DisneyMcpServer {
   }
 
   /**
-   * Initialize and start the server.
+   * Initialize and start the server with stdio transport.
    */
   async run(): Promise<void> {
-    logger.info("Starting Disney Parks MCP server", {
+    logger.info("Starting Disney Parks MCP server (stdio mode)", {
       name: SERVER_NAME,
       version: SERVER_VERSION,
     });
 
+    await this.initialize();
+
+    // Connect to stdio transport
+    const transport = new StdioServerTransport();
+    await this.server.connect(transport);
+
+    logger.info("Disney Parks MCP server running (stdio)");
+  }
+
+  /**
+   * Initialize and start the server with HTTP transport.
+   */
+  async runHttp(config: HttpTransportConfig): Promise<void> {
+    logger.info("Starting Disney Parks MCP server (HTTP mode)", {
+      name: SERVER_NAME,
+      version: SERVER_VERSION,
+      host: config.host,
+      port: config.port,
+    });
+
+    await this.initialize();
+
+    // Create and start HTTP server
+    this.httpServer = new McpHttpServer(this.server, config);
+    await this.httpServer.start();
+
+    logger.info("Disney Parks MCP server running (HTTP)", {
+      address: this.httpServer.getAddress(),
+    });
+  }
+
+  /**
+   * Common initialization for both transport modes.
+   */
+  private async initialize(): Promise<void> {
     // Initialize session manager
     const sessionManager = getSessionManager();
     await sessionManager.initialize();
@@ -140,12 +254,6 @@ export class DisneyMcpServer {
     // WHY: Wire up event subscriptions at startup to enable embedding generation
     this.cleanupEventHandlers = registerEmbeddingHandlers();
     logger.debug("Event handlers registered");
-
-    // Connect to stdio transport
-    const transport = new StdioServerTransport();
-    await this.server.connect(transport);
-
-    logger.info("Disney Parks MCP server running");
   }
 
   /**
@@ -155,6 +263,12 @@ export class DisneyMcpServer {
     logger.info("Shutting down Disney Parks MCP server");
 
     try {
+      // Stop HTTP server if running
+      if (this.httpServer) {
+        await this.httpServer.stop();
+        this.httpServer = undefined;
+      }
+
       // Cleanup event handlers
       if (this.cleanupEventHandlers) {
         this.cleanupEventHandlers();

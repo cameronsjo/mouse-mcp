@@ -10,6 +10,7 @@ import { formatErrorResponse } from "../shared/index.js";
 import { getEmbeddingStats } from "../vectordb/index.js";
 import { getEmbeddingProvider } from "../embeddings/index.js";
 import type { DestinationId } from "../types/index.js";
+import { initializeOutputSchema, zodToJsonSchema } from "./schemas.js";
 
 export const definition: ToolDefinition = {
   name: "initialize",
@@ -38,6 +39,7 @@ export const definition: ToolDefinition = {
     },
     required: [],
   },
+  outputSchema: zodToJsonSchema(initializeOutputSchema),
 };
 
 export const handler: ToolHandler = async (args) => {
@@ -114,25 +116,24 @@ export const handler: ToolHandler = async (args) => {
     const totalEntities =
       stats.attractions + stats.dining + stats.shows + stats.shops + stats.events;
 
+    const result = {
+      success: true,
+      message: `Synced ${totalEntities} entities from ${destinations.join(", ")}`,
+      stats,
+      note:
+        stats.embeddings.total < totalEntities
+          ? "Embeddings are still generating in the background. Run status to check progress."
+          : "All embeddings ready for semantic search.",
+    };
+
     return {
       content: [
         {
           type: "text" as const,
-          text: JSON.stringify(
-            {
-              success: true,
-              message: `Synced ${totalEntities} entities from ${destinations.join(", ")}`,
-              stats,
-              note:
-                stats.embeddings.total < totalEntities
-                  ? "Embeddings are still generating in the background. Run status to check progress."
-                  : "All embeddings ready for semantic search.",
-            },
-            null,
-            2
-          ),
+          text: JSON.stringify(result, null, 2),
         },
       ],
+      structuredContent: result,
     };
   } catch (error) {
     return formatErrorResponse(error);

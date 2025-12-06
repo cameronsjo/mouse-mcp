@@ -15,6 +15,7 @@ import {
   getShows,
 } from "../db/index.js";
 import type { DisneyEntity, DestinationId, EntityType } from "../types/index.js";
+import { searchOutputSchema, zodToJsonSchema } from "./schemas.js";
 
 export const definition: ToolDefinition = {
   name: "search",
@@ -46,6 +47,7 @@ export const definition: ToolDefinition = {
     },
     required: [],
   },
+  outputSchema: zodToJsonSchema(searchOutputSchema),
 };
 
 export const handler: ToolHandler = async (args) => {
@@ -72,21 +74,20 @@ export const handler: ToolHandler = async (args) => {
         const fetched = await client.getEntityById(id);
 
         if (!fetched) {
+          const result = {
+            id,
+            found: false,
+            message: "No entity found with this ID",
+          };
+
           return {
             content: [
               {
                 type: "text" as const,
-                text: JSON.stringify(
-                  {
-                    id,
-                    found: false,
-                    message: "No entity found with this ID",
-                  },
-                  null,
-                  2
-                ),
+                text: JSON.stringify(result, null, 2),
               },
             ],
+            structuredContent: result,
           };
         }
 
@@ -155,21 +156,20 @@ export const handler: ToolHandler = async (args) => {
       });
 
       if (matches.length === 0) {
+        const result = {
+          query: name,
+          found: false,
+          message: "No matching entities found. Try discover for conceptual searches.",
+        };
+
         return {
           content: [
             {
               type: "text" as const,
-              text: JSON.stringify(
-                {
-                  query: name,
-                  found: false,
-                  message: "No matching entities found. Try discover for conceptual searches.",
-                },
-                null,
-                2
-              ),
+              text: JSON.stringify(result, null, 2),
             },
           ],
+          structuredContent: result,
         };
       }
 
@@ -179,28 +179,27 @@ export const handler: ToolHandler = async (args) => {
       const bestMatch = matches[0]!;
       const alternatives = matches.slice(1);
 
+      const result = {
+        query: name,
+        found: true,
+        confidence: Math.round(bestMatch.score * 100) / 100,
+        bestMatch: formatEntity(bestMatch.entity),
+        alternatives: alternatives.map((m) => ({
+          name: m.entity.name,
+          id: m.entity.id,
+          type: m.entity.entityType,
+          score: Math.round(m.score * 100) / 100,
+        })),
+      };
+
       return {
         content: [
           {
             type: "text" as const,
-            text: JSON.stringify(
-              {
-                query: name,
-                found: true,
-                confidence: Math.round(bestMatch.score * 100) / 100,
-                bestMatch: formatEntity(bestMatch.entity),
-                alternatives: alternatives.map((m) => ({
-                  name: m.entity.name,
-                  id: m.entity.id,
-                  type: m.entity.entityType,
-                  score: Math.round(m.score * 100) / 100,
-                })),
-              },
-              null,
-              2
-            ),
+            text: JSON.stringify(result, null, 2),
           },
         ],
+        structuredContent: result,
       };
     }
 
@@ -212,21 +211,21 @@ export const handler: ToolHandler = async (args) => {
 
 function formatEntityResult(entity: DisneyEntity): {
   content: Array<{ type: "text"; text: string }>;
+  structuredContent: unknown;
 } {
+  const result = {
+    found: true,
+    entity: formatEntity(entity),
+  };
+
   return {
     content: [
       {
         type: "text" as const,
-        text: JSON.stringify(
-          {
-            found: true,
-            entity: formatEntity(entity),
-          },
-          null,
-          2
-        ),
+        text: JSON.stringify(result, null, 2),
       },
     ],
+    structuredContent: result,
   };
 }
 

@@ -8,6 +8,7 @@ import type { ToolDefinition, ToolHandler } from "./types.js";
 import { getDisneyFinderClient } from "../clients/index.js";
 import { formatErrorResponse, ValidationError } from "../shared/index.js";
 import type { DisneyAttraction, DestinationId } from "../types/index.js";
+import { findAttractionsOutputSchema, zodToJsonSchema } from "./schemas.js";
 
 export const definition: ToolDefinition = {
   name: "find_attractions",
@@ -56,6 +57,7 @@ export const definition: ToolDefinition = {
     },
     required: ["destination"],
   },
+  outputSchema: zodToJsonSchema(findAttractionsOutputSchema),
 };
 
 export const handler: ToolHandler = async (args) => {
@@ -77,22 +79,21 @@ export const handler: ToolHandler = async (args) => {
     // Apply filters
     attractions = applyFilters(attractions, filters);
 
+    const result = {
+      destination,
+      parkId: parkId ?? null,
+      count: attractions.length,
+      attractions: attractions.map(formatAttraction),
+    };
+
     return {
       content: [
         {
           type: "text" as const,
-          text: JSON.stringify(
-            {
-              destination,
-              parkId: parkId ?? null,
-              count: attractions.length,
-              attractions: attractions.map(formatAttraction),
-            },
-            null,
-            2
-          ),
+          text: JSON.stringify(result, null, 2),
         },
       ],
+      structuredContent: result,
     };
   } catch (error) {
     return formatErrorResponse(error);

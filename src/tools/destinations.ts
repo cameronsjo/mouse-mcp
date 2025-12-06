@@ -8,6 +8,7 @@ import type { ToolDefinition, ToolHandler } from "./types.js";
 import { getDisneyFinderClient } from "../clients/index.js";
 import { cacheGet, cacheSet } from "../db/index.js";
 import type { DisneyDestination } from "../types/index.js";
+import { listParksOutputSchema, zodToJsonSchema } from "./schemas.js";
 
 export const definition: ToolDefinition = {
   name: "list_parks",
@@ -20,6 +21,7 @@ export const definition: ToolDefinition = {
     properties: {},
     required: [],
   },
+  outputSchema: zodToJsonSchema(listParksOutputSchema),
 };
 
 export const handler: ToolHandler = async () => {
@@ -44,33 +46,32 @@ export const handler: ToolHandler = async () => {
 function formatResult(
   destinations: DisneyDestination[],
   cachedAt: string
-): { content: Array<{ type: "text"; text: string }> } {
+): { content: Array<{ type: "text"; text: string }>; structuredContent: unknown } {
+  const result = {
+    destinations: destinations.map((d) => ({
+      id: d.id,
+      name: d.name,
+      location: d.location,
+      timezone: d.timezone,
+      parks: d.parks.map((p) => ({
+        id: p.id,
+        name: p.name,
+        slug: p.slug,
+      })),
+    })),
+    _meta: {
+      cachedAt,
+      source: "disney" as const,
+    },
+  };
+
   return {
     content: [
       {
         type: "text" as const,
-        text: JSON.stringify(
-          {
-            destinations: destinations.map((d) => ({
-              id: d.id,
-              name: d.name,
-              location: d.location,
-              timezone: d.timezone,
-              parks: d.parks.map((p) => ({
-                id: p.id,
-                name: p.name,
-                slug: p.slug,
-              })),
-            })),
-            _meta: {
-              cachedAt,
-              source: "disney",
-            },
-          },
-          null,
-          2
-        ),
+        text: JSON.stringify(result, null, 2),
       },
     ],
+    structuredContent: result,
   };
 }
