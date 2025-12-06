@@ -58,6 +58,8 @@ Current SDK: `@modelcontextprotocol/sdk@1.12.0` (needs upgrade for 2025-11-25 fe
 | Add Prometheus metrics | p3 | medium | Tool invocation counts, latency histograms, cache hit rates |
 | Rotate user agents | p4 | small | Avoid static user agent being easily identifiable |
 | Add background cache purging | p4 | small | Scheduled cleanup of expired cache entries |
+| Improve embedding text quality | p2 | medium | Generate prose descriptions via LLM, add query-document asymmetry (E5-style prefixes), hybrid search with BM25, IP/franchise associations |
+| Entity change tracking | p2 | medium | Track changes over time: refurbishments, closures, new openings, name changes, attribute changes. Add entity_history table, diff detection on sync, `changes` tool |
 
 ---
 
