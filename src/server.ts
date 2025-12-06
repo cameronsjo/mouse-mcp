@@ -8,7 +8,7 @@
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { CallToolRequestSchema, ListToolsRequestSchema } from "@modelcontextprotocol/sdk/types.js";
-import { createLogger } from "./shared/index.js";
+import { createLogger, withSpan, SpanAttributes, SpanOperations, Sentry } from "./shared/index.js";
 import { formatErrorResponse } from "./shared/errors.js";
 import { getToolDefinitions, getTool } from "./tools/index.js";
 import { getSessionManager } from "./clients/index.js";
@@ -60,28 +60,42 @@ export class DisneyMcpServer {
       };
     });
 
-    // Call tool handler
+    // Call tool handler with tracing
     this.server.setRequestHandler(CallToolRequestSchema, async (request) => {
       const { name, arguments: args } = request.params;
 
-      logger.info("Tool invocation", { tool: name });
+      return withSpan(
+        `mcp.tool.${name}`,
+        SpanOperations.MCP_TOOL_CALL,
+        async (span) => {
+          span?.setAttribute(SpanAttributes.MCP_TOOL, name);
 
-      const tool = getTool(name);
-      if (!tool) {
-        logger.warn("Unknown tool requested", { tool: name });
-        return formatErrorResponse(new Error(`Unknown tool: ${name}`)) as {
-          content: Array<{ type: "text"; text: string }>;
-        };
-      }
+          logger.info("Tool invocation", { tool: name });
 
-      try {
-        const result = await tool.handler(args ?? {});
-        logger.debug("Tool completed", { tool: name });
-        return result as { content: Array<{ type: "text"; text: string }> };
-      } catch (error) {
-        logger.error("Tool execution failed", error, { tool: name });
-        return formatErrorResponse(error) as { content: Array<{ type: "text"; text: string }> };
-      }
+          const tool = getTool(name);
+          if (!tool) {
+            logger.warn("Unknown tool requested", { tool: name });
+            return formatErrorResponse(new Error(`Unknown tool: ${name}`)) as {
+              content: Array<{ type: "text"; text: string }>;
+            };
+          }
+
+          try {
+            const result = await tool.handler(args ?? {});
+            logger.debug("Tool completed", { tool: name });
+            return result as { content: Array<{ type: "text"; text: string }> };
+          } catch (error) {
+            logger.error("Tool execution failed", error, { tool: name });
+            // Capture error in Sentry with tool context
+            Sentry.captureException(error, {
+              tags: { tool: name },
+              extra: { args },
+            });
+            return formatErrorResponse(error) as { content: Array<{ type: "text"; text: string }> };
+          }
+        },
+        { [SpanAttributes.MCP_TOOL]: name }
+      );
     });
   }
 
@@ -173,6 +187,9 @@ export class DisneyMcpServer {
 
       // Close MCP server
       await this.server.close();
+
+      // Flush Sentry events before exit
+      await Sentry.close(2000);
 
       logger.info("Shutdown complete");
     } catch (error) {

@@ -9,6 +9,7 @@ import { getDatabase, persistDatabase } from "./database.js";
 import { createLogger } from "../shared/logger.js";
 import { fuzzySearch } from "../shared/fuzzy-match.js";
 import { getEntityEmitter } from "../events/entity-events.js";
+import { withSpan, SpanAttributes, SpanOperations } from "../shared/index.js";
 import type {
   DisneyEntity,
   DisneyAttraction,
@@ -27,42 +28,16 @@ const logger = createLogger("Entities");
  * Emits 'entity:saved' event to trigger async embedding generation.
  */
 export async function saveEntity(entity: DisneyEntity): Promise<void> {
-  const db = await getDatabase();
-  const now = new Date().toISOString();
+  return withSpan(`entity.save ${entity.id}`, SpanOperations.DB_INSERT, async (span) => {
+    span?.setAttribute(SpanAttributes.DB_SYSTEM, "sqlite");
+    span?.setAttribute(SpanAttributes.DB_OPERATION, "INSERT OR REPLACE");
+    span?.setAttribute(SpanAttributes.DISNEY_ENTITY_ID, entity.id);
+    span?.setAttribute(SpanAttributes.DISNEY_ENTITY_TYPE, entity.entityType);
+    span?.setAttribute(SpanAttributes.DISNEY_DESTINATION, entity.destinationId);
 
-  db.run(
-    `INSERT OR REPLACE INTO entities
-     (id, name, slug, entity_type, destination_id, park_id, park_name, data, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-    [
-      entity.id,
-      entity.name,
-      entity.slug,
-      entity.entityType,
-      entity.destinationId,
-      entity.parkId,
-      entity.parkName,
-      JSON.stringify(entity),
-      now,
-    ]
-  );
+    const db = await getDatabase();
+    const now = new Date().toISOString();
 
-  persistDatabase();
-
-  // Emit event for embedding generation (fire-and-forget)
-  const emitter = getEntityEmitter();
-  emitter.emitEvent("entity:saved", { entity, timestamp: now });
-}
-
-/**
- * Save multiple entities in a batch.
- * Emits 'entity:batch-saved' event to trigger async batch embedding generation.
- */
-export async function saveEntities(entities: DisneyEntity[]): Promise<void> {
-  const db = await getDatabase();
-  const now = new Date().toISOString();
-
-  for (const entity of entities) {
     db.run(
       `INSERT OR REPLACE INTO entities
        (id, name, slug, entity_type, destination_id, park_id, park_name, data, updated_at)
@@ -79,39 +54,91 @@ export async function saveEntities(entities: DisneyEntity[]): Promise<void> {
         now,
       ]
     );
-  }
 
-  persistDatabase();
-  logger.debug("Saved entities", { count: entities.length });
+    persistDatabase();
 
-  // Emit event for batch embedding generation (fire-and-forget)
-  const emitter = getEntityEmitter();
-  emitter.emitEvent("entity:batch-saved", { entities, count: entities.length, timestamp: now });
+    // Emit event for embedding generation (fire-and-forget)
+    const emitter = getEntityEmitter();
+    emitter.emitEvent("entity:saved", { entity, timestamp: now });
+  });
+}
+
+/**
+ * Save multiple entities in a batch.
+ * Emits 'entity:batch-saved' event to trigger async batch embedding generation.
+ */
+export async function saveEntities(entities: DisneyEntity[]): Promise<void> {
+  return withSpan("entity.save-batch", SpanOperations.DB_INSERT, async (span) => {
+    span?.setAttribute(SpanAttributes.DB_SYSTEM, "sqlite");
+    span?.setAttribute(SpanAttributes.DB_OPERATION, "INSERT OR REPLACE");
+    span?.setAttribute("entity.batch_size", entities.length);
+
+    const db = await getDatabase();
+    const now = new Date().toISOString();
+
+    for (const entity of entities) {
+      db.run(
+        `INSERT OR REPLACE INTO entities
+         (id, name, slug, entity_type, destination_id, park_id, park_name, data, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [
+          entity.id,
+          entity.name,
+          entity.slug,
+          entity.entityType,
+          entity.destinationId,
+          entity.parkId,
+          entity.parkName,
+          JSON.stringify(entity),
+          now,
+        ]
+      );
+    }
+
+    persistDatabase();
+    logger.debug("Saved entities", { count: entities.length });
+
+    // Emit event for batch embedding generation (fire-and-forget)
+    const emitter = getEntityEmitter();
+    emitter.emitEvent("entity:batch-saved", { entities, count: entities.length, timestamp: now });
+  });
 }
 
 /**
  * Get an entity by ID.
  */
 export async function getEntityById<T extends DisneyEntity>(id: string): Promise<T | null> {
-  const db = await getDatabase();
+  return withSpan(`entity.get ${id}`, SpanOperations.DB_QUERY, async (span) => {
+    span?.setAttribute(SpanAttributes.DB_SYSTEM, "sqlite");
+    span?.setAttribute(SpanAttributes.DB_OPERATION, "SELECT");
+    span?.setAttribute(SpanAttributes.DISNEY_ENTITY_ID, id);
 
-  const result = db.exec("SELECT data FROM entities WHERE id = ?", [id]);
+    const db = await getDatabase();
 
-  const firstResult = result[0];
-  if (!firstResult || firstResult.values.length === 0) {
-    return null;
-  }
+    const result = db.exec("SELECT data FROM entities WHERE id = ?", [id]);
 
-  const firstRow = firstResult.values[0];
-  if (!firstRow) {
-    return null;
-  }
+    const firstResult = result[0];
+    if (!firstResult || firstResult.values.length === 0) {
+      span?.setAttribute("entity.found", false);
+      return null;
+    }
 
-  try {
-    return JSON.parse(String(firstRow[0])) as T;
-  } catch {
-    return null;
-  }
+    const firstRow = firstResult.values[0];
+    if (!firstRow) {
+      span?.setAttribute("entity.found", false);
+      return null;
+    }
+
+    try {
+      const entity = JSON.parse(String(firstRow[0])) as T;
+      span?.setAttribute("entity.found", true);
+      span?.setAttribute(SpanAttributes.DISNEY_ENTITY_TYPE, entity.entityType);
+      return entity;
+    } catch {
+      span?.setAttribute("entity.found", false);
+      return null;
+    }
+  });
 }
 
 /**
@@ -122,41 +149,56 @@ export async function getEntities<T extends DisneyEntity>(options: {
   entityType?: EntityType;
   parkId?: string;
 }): Promise<T[]> {
-  const db = await getDatabase();
+  return withSpan("entity.get-many", SpanOperations.DB_QUERY, async (span) => {
+    span?.setAttribute(SpanAttributes.DB_SYSTEM, "sqlite");
+    span?.setAttribute(SpanAttributes.DB_OPERATION, "SELECT");
+    span?.setAttribute(SpanAttributes.DISNEY_DESTINATION, options.destinationId);
 
-  let sql = "SELECT data FROM entities WHERE destination_id = ?";
-  const params: Array<string | null> = [options.destinationId];
-
-  if (options.entityType) {
-    sql += " AND entity_type = ?";
-    params.push(options.entityType);
-  }
-
-  if (options.parkId) {
-    sql += " AND park_id = ?";
-    params.push(options.parkId);
-  }
-
-  sql += " ORDER BY name";
-
-  const result = db.exec(sql, params);
-
-  const firstResult = result[0];
-  if (!firstResult) {
-    return [];
-  }
-
-  const entities: T[] = [];
-  for (const row of firstResult.values) {
-    if (!row) continue;
-    try {
-      entities.push(JSON.parse(String(row[0])) as T);
-    } catch {
-      // Skip invalid entries
+    if (options.entityType) {
+      span?.setAttribute(SpanAttributes.DISNEY_ENTITY_TYPE, options.entityType);
     }
-  }
+    if (options.parkId) {
+      span?.setAttribute(SpanAttributes.DISNEY_PARK, options.parkId);
+    }
 
-  return entities;
+    const db = await getDatabase();
+
+    let sql = "SELECT data FROM entities WHERE destination_id = ?";
+    const params: Array<string | null> = [options.destinationId];
+
+    if (options.entityType) {
+      sql += " AND entity_type = ?";
+      params.push(options.entityType);
+    }
+
+    if (options.parkId) {
+      sql += " AND park_id = ?";
+      params.push(options.parkId);
+    }
+
+    sql += " ORDER BY name";
+
+    const result = db.exec(sql, params);
+
+    const firstResult = result[0];
+    if (!firstResult) {
+      span?.setAttribute("entity.count", 0);
+      return [];
+    }
+
+    const entities: T[] = [];
+    for (const row of firstResult.values) {
+      if (!row) continue;
+      try {
+        entities.push(JSON.parse(String(row[0])) as T);
+      } catch {
+        // Skip invalid entries
+      }
+    }
+
+    span?.setAttribute("entity.count", entities.length);
+    return entities;
+  });
 }
 
 /**
@@ -241,46 +283,65 @@ export async function searchEntitiesByName<T extends DisneyEntity>(
     limit?: number;
   } = {}
 ): Promise<T[]> {
-  const db = await getDatabase();
-  const limit = options.limit ?? 20;
+  return withSpan("entity.search", SpanOperations.DB_QUERY, async (span) => {
+    span?.setAttribute(SpanAttributes.DB_SYSTEM, "sqlite");
+    span?.setAttribute(SpanAttributes.DB_OPERATION, "SELECT");
+    span?.setAttribute("search.query", query);
+    span?.setAttribute("search.limit", options.limit ?? 20);
 
-  // Build query to get candidates
-  let sql = "SELECT data FROM entities WHERE 1=1";
-  const params: string[] = [];
-
-  if (options.destinationId) {
-    sql += " AND destination_id = ?";
-    params.push(options.destinationId);
-  }
-
-  if (options.entityType) {
-    sql += " AND entity_type = ?";
-    params.push(options.entityType);
-  }
-
-  const result = db.exec(sql, params);
-
-  const firstResult = result[0];
-  if (!firstResult) {
-    return [];
-  }
-
-  // Parse all entities
-  const entities: T[] = [];
-  for (const row of firstResult.values) {
-    if (!row) continue;
-    try {
-      entities.push(JSON.parse(String(row[0])) as T);
-    } catch {
-      // Skip invalid
+    if (options.destinationId) {
+      span?.setAttribute(SpanAttributes.DISNEY_DESTINATION, options.destinationId);
     }
-  }
+    if (options.entityType) {
+      span?.setAttribute(SpanAttributes.DISNEY_ENTITY_TYPE, options.entityType);
+    }
 
-  // Use Fuse.js for fuzzy search
-  const searchResults = fuzzySearch(query, entities, { limit });
+    const db = await getDatabase();
+    const limit = options.limit ?? 20;
 
-  logger.debug("Fuzzy search completed", { query, count: searchResults.length });
-  return searchResults.map((r) => r.entity);
+    // Build query to get candidates
+    let sql = "SELECT data FROM entities WHERE 1=1";
+    const params: string[] = [];
+
+    if (options.destinationId) {
+      sql += " AND destination_id = ?";
+      params.push(options.destinationId);
+    }
+
+    if (options.entityType) {
+      sql += " AND entity_type = ?";
+      params.push(options.entityType);
+    }
+
+    const result = db.exec(sql, params);
+
+    const firstResult = result[0];
+    if (!firstResult) {
+      span?.setAttribute("search.candidates", 0);
+      span?.setAttribute("search.results", 0);
+      return [];
+    }
+
+    // Parse all entities
+    const entities: T[] = [];
+    for (const row of firstResult.values) {
+      if (!row) continue;
+      try {
+        entities.push(JSON.parse(String(row[0])) as T);
+      } catch {
+        // Skip invalid
+      }
+    }
+
+    span?.setAttribute("search.candidates", entities.length);
+
+    // Use Fuse.js for fuzzy search
+    const searchResults = fuzzySearch(query, entities, { limit });
+
+    span?.setAttribute("search.results", searchResults.length);
+    logger.debug("Fuzzy search completed", { query, count: searchResults.length });
+    return searchResults.map((r) => r.entity);
+  });
 }
 
 /**

@@ -12,6 +12,19 @@ export type LogLevel = "DEBUG" | "INFO" | "WARN" | "ERROR";
 
 export type EmbeddingProviderType = "openai" | "transformers" | "auto";
 
+export interface ObservabilityConfig {
+  /** Sentry DSN for error tracking and performance monitoring */
+  readonly sentryDsn: string | undefined;
+  /** Sample rate for traces (0.0 to 1.0) */
+  readonly sentryTracesSampleRate: number;
+  /** Sample rate for profiling (0.0 to 1.0) */
+  readonly sentryProfilesSampleRate: number;
+  /** Enable Sentry debug logging */
+  readonly sentryDebug: boolean;
+  /** OTLP exporter endpoint for additional trace export */
+  readonly otelExporterEndpoint: string | undefined;
+}
+
 export interface Config {
   readonly nodeEnv: "development" | "production" | "test";
   readonly logLevel: LogLevel;
@@ -24,6 +37,8 @@ export interface Config {
   readonly embeddingProvider: EmbeddingProviderType;
   /** OpenAI API key for embeddings (optional) */
   readonly openaiApiKey: string | undefined;
+  /** Observability configuration (Sentry + OTEL) */
+  readonly observability: ObservabilityConfig;
 }
 
 let cachedConfig: Config | null = null;
@@ -54,6 +69,16 @@ export function getConfig(): Config {
     // Embedding configuration
     embeddingProvider: parseEmbeddingProvider(process.env.MOUSE_MCP_EMBEDDING_PROVIDER),
     openaiApiKey: process.env.OPENAI_API_KEY,
+    // Observability configuration
+    observability: {
+      sentryDsn: process.env.MOUSE_MCP_SENTRY_DSN,
+      sentryTracesSampleRate: parseFloat(process.env.MOUSE_MCP_SENTRY_TRACES_SAMPLE_RATE ?? "1.0"),
+      sentryProfilesSampleRate: parseFloat(
+        process.env.MOUSE_MCP_SENTRY_PROFILES_SAMPLE_RATE ?? "0.1"
+      ),
+      sentryDebug: process.env.MOUSE_MCP_SENTRY_DEBUG === "true",
+      otelExporterEndpoint: process.env.OTEL_EXPORTER_OTLP_ENDPOINT,
+    },
   };
 
   return cachedConfig;

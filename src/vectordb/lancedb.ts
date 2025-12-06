@@ -10,6 +10,7 @@ import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { mkdir } from "node:fs/promises";
 import { createLogger } from "../shared/logger.js";
+import { withSpan, SpanAttributes, SpanOperations } from "../shared/index.js";
 import { escapeSqlIdentifier, escapeSqlValue } from "./sql-escaping.js";
 
 const logger = createLogger("LanceDB");
@@ -101,68 +102,87 @@ async function getTable(): Promise<lancedb.Table> {
  * Upserts based on (id, model) composite key.
  */
 export async function saveEmbedding(record: EmbeddingRecord): Promise<void> {
-  const conn = await connectLanceDB();
-  const tableNames = await conn.tableNames();
+  return withSpan(`vectordb.save-embedding`, SpanOperations.DB_INSERT, async (span) => {
+    span?.setAttribute(SpanAttributes.DB_SYSTEM, "lancedb");
+    span?.setAttribute(SpanAttributes.DB_OPERATION, "upsert");
+    span?.setAttribute(SpanAttributes.DISNEY_ENTITY_ID, record.id);
+    span?.setAttribute(SpanAttributes.DISNEY_ENTITY_TYPE, record.entityType);
+    span?.setAttribute(SpanAttributes.EMBEDDING_MODEL, record.model);
+    span?.setAttribute(SpanAttributes.EMBEDDING_DIMENSIONS, record.vector.length);
 
-  if (!tableNames.includes(TABLE_NAME)) {
-    // Create table with first record
-    logger.info("Creating embeddings table");
-    await conn.createTable(TABLE_NAME, [record]);
-    return;
-  }
+    const conn = await connectLanceDB();
+    const tableNames = await conn.tableNames();
 
-  const table = await conn.openTable(TABLE_NAME);
+    if (!tableNames.includes(TABLE_NAME)) {
+      // Create table with first record
+      logger.info("Creating embeddings table");
+      await conn.createTable(TABLE_NAME, [record]);
+      return;
+    }
 
-  // Upsert: delete existing + insert new
-  // LanceDB merge insert requires scanning, so we delete first for small datasets
-  try {
-    const deleteClause = `${escapeSqlIdentifier("id")} = '${escapeSqlValue(record.id)}' AND ${escapeSqlIdentifier("model")} = '${escapeSqlValue(record.model)}'`;
-    await table.delete(deleteClause);
-  } catch {
-    // Ignore delete errors (record might not exist)
-  }
+    const table = await conn.openTable(TABLE_NAME);
 
-  await table.add([record]);
-  logger.debug("Saved embedding", { id: record.id, model: record.model });
+    // Upsert: delete existing + insert new
+    // LanceDB merge insert requires scanning, so we delete first for small datasets
+    try {
+      const deleteClause = `${escapeSqlIdentifier("id")} = '${escapeSqlValue(record.id)}' AND ${escapeSqlIdentifier("model")} = '${escapeSqlValue(record.model)}'`;
+      await table.delete(deleteClause);
+    } catch {
+      // Ignore delete errors (record might not exist)
+    }
+
+    await table.add([record]);
+    logger.debug("Saved embedding", { id: record.id, model: record.model });
+  });
 }
 
 /**
  * Save multiple embeddings in batch.
  */
 export async function saveEmbeddingsBatch(records: EmbeddingRecord[]): Promise<void> {
-  if (records.length === 0) return;
+  return withSpan(`vectordb.save-embeddings-batch`, SpanOperations.DB_INSERT, async (span) => {
+    if (records.length === 0) return;
 
-  const conn = await connectLanceDB();
-  const tableNames = await conn.tableNames();
-
-  if (!tableNames.includes(TABLE_NAME)) {
-    // Create table with first batch
-    logger.info("Creating embeddings table with batch", { count: records.length });
-    await conn.createTable(TABLE_NAME, records);
-    return;
-  }
-
-  const table = await conn.openTable(TABLE_NAME);
-
-  // Delete existing records for these IDs/models
-  const deleteConditions = records.map(
-    (r) =>
-      `(${escapeSqlIdentifier("id")} = '${escapeSqlValue(r.id)}' AND ${escapeSqlIdentifier("model")} = '${escapeSqlValue(r.model)}')`
-  );
-
-  // Delete in chunks to avoid query length limits
-  const CHUNK_SIZE = 50;
-  for (let i = 0; i < deleteConditions.length; i += CHUNK_SIZE) {
-    const chunk = deleteConditions.slice(i, i + CHUNK_SIZE);
-    try {
-      await table.delete(chunk.join(" OR "));
-    } catch {
-      // Ignore delete errors
+    span?.setAttribute(SpanAttributes.DB_SYSTEM, "lancedb");
+    span?.setAttribute(SpanAttributes.DB_OPERATION, "upsert_batch");
+    span?.setAttribute(SpanAttributes.EMBEDDING_BATCH_SIZE, records.length);
+    if (records[0]) {
+      span?.setAttribute(SpanAttributes.EMBEDDING_MODEL, records[0].model);
+      span?.setAttribute(SpanAttributes.EMBEDDING_DIMENSIONS, records[0].vector.length);
     }
-  }
 
-  await table.add(records);
-  logger.info("Saved embeddings batch", { count: records.length });
+    const conn = await connectLanceDB();
+    const tableNames = await conn.tableNames();
+
+    if (!tableNames.includes(TABLE_NAME)) {
+      // Create table with first batch
+      logger.info("Creating embeddings table with batch", { count: records.length });
+      await conn.createTable(TABLE_NAME, records);
+      return;
+    }
+
+    const table = await conn.openTable(TABLE_NAME);
+
+    // Delete existing records for these IDs/models
+    const deleteConditions = records.map(
+      (r) =>
+        `(${escapeSqlIdentifier("id")} = '${escapeSqlValue(r.id)}' AND ${escapeSqlIdentifier("model")} = '${escapeSqlValue(r.model)}')`
+    );
+
+    // Delete in chunks to avoid query length limits
+    const CHUNK_SIZE = 50;
+    for (let i = 0; i < deleteConditions.length; i += CHUNK_SIZE) {
+      const chunk = deleteConditions.slice(i, i + CHUNK_SIZE);
+      try {
+        await table.delete(chunk.join(" OR "));
+      } catch {
+        // Ignore delete errors
+      }
+    }
+
+    await table.add(records);
+    logger.info("Saved embeddings batch", { count: records.length });
+  });
 }
 
 /**
@@ -213,31 +233,54 @@ export async function vectorSearch(
     destinationId?: string;
   } = {}
 ): Promise<VectorSearchResult[]> {
-  const { limit = 10, entityType, destinationId } = options;
+  return withSpan(`vectordb.vector-search`, SpanOperations.DB_QUERY, async (span) => {
+    const { limit = 10, entityType, destinationId } = options;
 
-  try {
-    const table = await getTable();
-
-    // Build filter for model + optional filters using proper SQL escaping
-    const filters: string[] = [`${escapeSqlIdentifier("model")} = '${escapeSqlValue(model)}'`];
+    span?.setAttribute(SpanAttributes.DB_SYSTEM, "lancedb");
+    span?.setAttribute(SpanAttributes.DB_OPERATION, "vector_search");
+    span?.setAttribute(SpanAttributes.EMBEDDING_MODEL, model);
+    span?.setAttribute(SpanAttributes.EMBEDDING_DIMENSIONS, queryVector.length);
+    span?.setAttribute("search.limit", limit);
     if (entityType) {
-      filters.push(`${escapeSqlIdentifier("entityType")} = '${escapeSqlValue(entityType)}'`);
+      span?.setAttribute(SpanAttributes.DISNEY_ENTITY_TYPE, entityType);
     }
     if (destinationId) {
-      filters.push(`${escapeSqlIdentifier("destinationId")} = '${escapeSqlValue(destinationId)}'`);
+      span?.setAttribute(SpanAttributes.DISNEY_DESTINATION, destinationId);
     }
 
-    const whereClause = filters.join(" AND ");
+    try {
+      const table = await getTable();
 
-    const results = await table.vectorSearch(queryVector).where(whereClause).limit(limit).toArray();
+      // Build filter for model + optional filters using proper SQL escaping
+      const filters: string[] = [`${escapeSqlIdentifier("model")} = '${escapeSqlValue(model)}'`];
+      if (entityType) {
+        filters.push(`${escapeSqlIdentifier("entityType")} = '${escapeSqlValue(entityType)}'`);
+      }
+      if (destinationId) {
+        filters.push(
+          `${escapeSqlIdentifier("destinationId")} = '${escapeSqlValue(destinationId)}'`
+        );
+      }
 
-    return results as unknown as VectorSearchResult[];
-  } catch (error) {
-    if (error instanceof Error && error.message === "TABLE_NOT_EXISTS") {
-      return [];
+      const whereClause = filters.join(" AND ");
+
+      const results = await table
+        .vectorSearch(queryVector)
+        .where(whereClause)
+        .limit(limit)
+        .toArray();
+
+      span?.setAttribute("search.results_count", results.length);
+
+      return results as unknown as VectorSearchResult[];
+    } catch (error) {
+      if (error instanceof Error && error.message === "TABLE_NOT_EXISTS") {
+        span?.setAttribute("search.results_count", 0);
+        return [];
+      }
+      throw error;
     }
-    throw error;
-  }
+  });
 }
 
 /**

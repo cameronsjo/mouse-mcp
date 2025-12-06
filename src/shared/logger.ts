@@ -3,11 +3,15 @@
  *
  * Dual output: stderr for MCP compatibility + file logging for debugging.
  * Log files are written to .logs/ directory with daily rotation.
+ *
+ * Integrates with OpenTelemetry to include trace/span IDs in log entries
+ * for distributed tracing correlation.
  */
 
 import { appendFileSync, mkdirSync, existsSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
+import { trace } from "@opentelemetry/api";
 import { getConfig, type LogLevel } from "../config/index.js";
 
 const LOG_LEVELS: Record<LogLevel, number> = {
@@ -18,6 +22,21 @@ const LOG_LEVELS: Record<LogLevel, number> = {
 };
 
 export type LogContext = Record<string, unknown>;
+
+/**
+ * Get current trace context for log correlation.
+ */
+function getTraceContext(): { traceId?: string; spanId?: string } {
+  const activeSpan = trace.getActiveSpan();
+  if (activeSpan) {
+    const spanContext = activeSpan.spanContext();
+    return {
+      traceId: spanContext.traceId,
+      spanId: spanContext.spanId,
+    };
+  }
+  return {};
+}
 
 /** Get the project root directory */
 function getProjectRoot(): string {
@@ -108,20 +127,25 @@ export class Logger {
     }
 
     const timestamp = new Date().toISOString();
+    const traceContext = getTraceContext();
 
     const entry = {
       timestamp,
       level,
       context: this.context,
       message,
+      // Include trace context for correlation with distributed traces
+      ...(traceContext.traceId ? { traceId: traceContext.traceId } : {}),
+      ...(traceContext.spanId ? { spanId: traceContext.spanId } : {}),
       ...(data && Object.keys(data).length > 0 ? { data } : {}),
     };
 
     // Write JSON to stderr (MCP protocol uses stdout)
     process.stderr.write(JSON.stringify(entry) + "\n");
 
-    // Write human-readable format to log file
-    writeToFile(formatLogEntry(timestamp, level, this.context, message, data));
+    // Write human-readable format to log file (include trace ID if present)
+    const tracePrefix = traceContext.traceId ? ` [${traceContext.traceId.slice(0, 8)}]` : "";
+    writeToFile(formatLogEntry(timestamp, level, this.context + tracePrefix, message, data));
   }
 }
 
