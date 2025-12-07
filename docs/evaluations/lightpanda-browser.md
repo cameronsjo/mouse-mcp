@@ -146,13 +146,41 @@ The script compares:
    MOUSE_MCP_BROWSER=lightpanda npm start
    ```
 
+## Actual Test Results (2025-12-07)
+
+We ran the test script against Lightpanda nightly build `cdd73990` on macOS ARM64.
+
+### Results
+
+| Test | Playwright | Lightpanda |
+|------|------------|------------|
+| Connection | ✅ Works | ❌ Hangs |
+| CDP Discovery (`/json/version`) | ✅ Works | ⚠️ Partial (no trailing slash) |
+| `connectOverCDP()` | ✅ Works | ❌ 404 error |
+| `connect(wsEndpoint)` | N/A | ❌ Hangs indefinitely |
+| Navigation | ⚠️ Transient errors | N/A (never reached) |
+
+### Key Findings
+
+1. **CDP Discovery Incompatibility**: Lightpanda's `/json/version` endpoint doesn't support the trailing slash that Playwright's `connectOverCDP()` expects. Returns 404 for `/json/version/`.
+
+2. **WebSocket Connection Hangs**: Even when fetching the WebSocket URL directly and using `chromium.connect()`, Playwright hangs indefinitely. This is because Playwright's `connect()` expects a Playwright Server protocol, not raw CDP.
+
+3. **Puppeteer Required**: Lightpanda's documentation recommends Puppeteer, not Playwright. Their CDP implementation is compatible with Puppeteer's lower-level CDP bindings but not Playwright's high-level API.
+
+4. **Not Playwright-Compatible**: Our entire codebase uses Playwright. Switching to Puppeteer would require significant refactoring of `SessionManager` and all browser-related code.
+
+### Conclusion
+
+**Lightpanda is NOT compatible with Playwright** for our use case. The CDP implementation works with Puppeteer but not with Playwright's connection methods (`connectOverCDP` or `connect`).
+
 ## Alternatives Considered
 
 | Alternative | Pros | Cons |
 |-------------|------|------|
 | **Keep Playwright** | Battle-tested, full API | Higher memory/CPU |
-| **Puppeteer** | Lighter than Playwright | Still uses full Chrome |
-| **Lightpanda** | Fastest, lowest memory | Beta, incomplete APIs |
+| **Puppeteer** | Lighter than Playwright, works with Lightpanda | Would require codebase refactor |
+| **Lightpanda** | Fastest, lowest memory | Not Playwright-compatible |
 | **Direct API Auth** | No browser needed | Disney doesn't expose auth endpoints |
 
 ## Decision
@@ -173,10 +201,11 @@ The script compares:
 
 Revisit this decision when:
 
+- Lightpanda adds native Playwright compatibility (not just Puppeteer)
 - Lightpanda reaches stable release (v1.0+)
+- We decide to migrate from Playwright to Puppeteer for other reasons
 - Web API coverage significantly expands
-- Someone validates Disney.com specifically works
-- We need to scale to many more concurrent sessions
+- Someone validates Disney.com specifically works with Puppeteer + Lightpanda
 
 ## References
 
