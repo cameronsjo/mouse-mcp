@@ -8,7 +8,16 @@
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { CallToolRequestSchema, ListToolsRequestSchema } from "@modelcontextprotocol/sdk/types.js";
-import { createLogger, withSpan, SpanAttributes, SpanOperations, Sentry } from "./shared/index.js";
+import {
+  createLogger,
+  setMcpServer,
+  withSpan,
+  SpanAttributes,
+  SpanOperations,
+  Sentry,
+  withAuditLogging,
+  SENTRY_FLUSH_TIMEOUT_MS,
+} from "./shared/index.js";
 import { formatErrorResponse } from "./shared/errors.js";
 import { getToolDefinitions, getTool } from "./tools/index.js";
 import { getSessionManager } from "./clients/index.js";
@@ -44,6 +53,10 @@ export class DisneyMcpServer {
       }
     );
 
+    // Configure logger to use MCP protocol for structured logging
+    // WHY: Prevents double-serialized JSON in MCP inspector
+    setMcpServer(this.server);
+
     this.setupHandlers();
     this.setupErrorHandling();
   }
@@ -60,7 +73,7 @@ export class DisneyMcpServer {
       };
     });
 
-    // Call tool handler with tracing
+    // Call tool handler with tracing and audit logging
     this.server.setRequestHandler(CallToolRequestSchema, async (request) => {
       const { name, arguments: args } = request.params;
 
@@ -81,7 +94,9 @@ export class DisneyMcpServer {
           }
 
           try {
-            const result = await tool.handler(args ?? {});
+            // Wrap handler with audit logging for automatic timing and PII sanitization
+            const auditedHandler = withAuditLogging(name, tool.handler);
+            const result = await auditedHandler(args ?? {});
             logger.debug("Tool completed", { tool: name });
             return result as { content: Array<{ type: "text"; text: string }> };
           } catch (error) {
@@ -189,7 +204,7 @@ export class DisneyMcpServer {
       await this.server.close();
 
       // Flush Sentry events before exit
-      await Sentry.close(2000);
+      await Sentry.close(SENTRY_FLUSH_TIMEOUT_MS);
 
       logger.info("Shutdown complete");
     } catch (error) {

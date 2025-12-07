@@ -10,6 +10,7 @@
 import { withRetry } from "../shared/index.js";
 import { ApiError } from "../shared/errors.js";
 import { getConfig } from "../config/index.js";
+import { INCHES_TO_CM, CM_TO_INCHES } from "../shared/constants.js";
 import type {
   DestinationId,
   DisneyDestination,
@@ -438,7 +439,7 @@ export class ThemeParksWikiClient {
       const inches = parseInt(inchMatch[1], 10);
       return {
         inches,
-        centimeters: Math.round(inches * 2.54),
+        centimeters: Math.round(inches * INCHES_TO_CM),
         description: height,
       };
     }
@@ -447,7 +448,7 @@ export class ThemeParksWikiClient {
     if (cmMatch?.[1]) {
       const cm = parseInt(cmMatch[1], 10);
       return {
-        inches: Math.round(cm / 2.54),
+        inches: Math.round(cm * CM_TO_INCHES),
         centimeters: cm,
         description: height,
       };

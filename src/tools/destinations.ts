@@ -7,6 +7,7 @@
 import type { ToolDefinition, ToolHandler } from "./types.js";
 import { getDisneyFinderClient } from "../clients/index.js";
 import { cacheGet, cacheSet } from "../db/index.js";
+import { withTimeout, TIMEOUTS } from "../shared/index.js";
 import type { DisneyDestination } from "../types/index.js";
 
 export const definition: ToolDefinition = {
@@ -23,22 +24,28 @@ export const definition: ToolDefinition = {
 };
 
 export const handler: ToolHandler = async () => {
-  const cacheKey = "destinations";
+  return withTimeout(
+    "list_parks",
+    async () => {
+      const cacheKey = "destinations";
 
-  // Check cache (7-day TTL for destinations)
-  const cached = await cacheGet<DisneyDestination[]>(cacheKey);
-  if (cached) {
-    return formatResult(cached.data, cached.cachedAt);
-  }
+      // Check cache (7-day TTL for destinations)
+      const cached = await cacheGet<DisneyDestination[]>(cacheKey);
+      if (cached) {
+        return formatResult(cached.data, cached.cachedAt);
+      }
 
-  // Fetch destinations
-  const client = getDisneyFinderClient();
-  const destinations = await client.getDestinations();
+      // Fetch destinations
+      const client = getDisneyFinderClient();
+      const destinations = await client.getDestinations();
 
-  // Cache for 7 days
-  await cacheSet(cacheKey, destinations, { ttlHours: 24 * 7 });
+      // Cache for 7 days
+      await cacheSet(cacheKey, destinations, { ttlHours: 24 * 7 });
 
-  return formatResult(destinations, new Date().toISOString());
+      return formatResult(destinations, new Date().toISOString());
+    },
+    TIMEOUTS.DEFAULT
+  );
 };
 
 function formatResult(

@@ -5,28 +5,35 @@
  */
 
 import { createLogger } from "./logger.js";
+import {
+  MAX_RETRY_ATTEMPTS,
+  RETRY_BASE_DELAY_MS,
+  RETRY_MAX_DELAY_MS,
+  RETRY_JITTER_MIN,
+  NON_RETRYABLE_STATUS_CODES,
+} from "./constants.js";
 
 const logger = createLogger("RetryHandler");
 
 export interface RetryOptions {
-  /** Maximum number of retry attempts (default: 3) */
+  /** Maximum number of retry attempts */
   maxRetries: number;
-  /** Base delay in milliseconds for exponential backoff (default: 1000) */
+  /** Base delay in milliseconds for exponential backoff */
   baseDelayMs: number;
-  /** Maximum delay cap in milliseconds (default: 30000) */
+  /** Maximum delay cap in milliseconds */
   maxDelayMs: number;
-  /** Add randomization to prevent thundering herd (default: true) */
+  /** Add randomization to prevent thundering herd */
   jitter: boolean;
   /** HTTP status codes that should not trigger retry */
   nonRetryableStatusCodes?: number[];
 }
 
 const DEFAULT_OPTIONS: RetryOptions = {
-  maxRetries: 3,
-  baseDelayMs: 1000,
-  maxDelayMs: 30000,
+  maxRetries: MAX_RETRY_ATTEMPTS,
+  baseDelayMs: RETRY_BASE_DELAY_MS,
+  maxDelayMs: RETRY_MAX_DELAY_MS,
   jitter: true,
-  nonRetryableStatusCodes: [400, 401, 403, 404],
+  nonRetryableStatusCodes: Array.from(NON_RETRYABLE_STATUS_CODES),
 };
 
 /**
@@ -93,7 +100,7 @@ function calculateDelay(attempt: number, options: RetryOptions): number {
 
   // Apply jitter (random between 50% and 100% of calculated delay)
   if (options.jitter) {
-    delay = delay * (0.5 + Math.random() * 0.5);
+    delay = delay * (RETRY_JITTER_MIN + Math.random() * RETRY_JITTER_MIN);
   }
 
   return Math.round(delay);

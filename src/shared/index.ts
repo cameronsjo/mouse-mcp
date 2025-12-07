@@ -2,7 +2,7 @@
  * Shared utilities exports
  */
 
-export { createLogger, Logger, type LogContext } from "./logger.js";
+export { createLogger, setMcpServer, Logger, type LogContext } from "./logger.js";
 export {
   DisneyMcpError,
   SessionError,
@@ -30,3 +30,12 @@ export {
   SpanOperations,
   Sentry,
 } from "./tracing.js";
+export {
+  setSecureFilePermissions,
+  setSecureFilePermissionsSync,
+  setSecureDirectoryPermissions,
+  setSecureDirectoryPermissionsSync,
+} from "./file-security.js";
+export { withAuditLogging, createAuditEntry } from "./audit-logger.js";
+export { withTimeout, withToolTimeout, TimeoutError, TIMEOUTS } from "./timeout.js";
+export * from "./constants.js";

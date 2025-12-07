@@ -33,13 +33,13 @@ Current SDK: `@modelcontextprotocol/sdk@1.12.0` (needs upgrade for 2025-11-25 fe
 | ~~Encrypt session tokens at rest~~ | ✅ | small | AES-256-GCM encryption in crypto.ts, PBKDF2 key derivation in secrets.ts |
 | Add rate limiting | p1 | medium | Per-tool rate limits to prevent abuse and Disney API bans |
 | Implement JSON schema validation | p1 | small | Runtime validation of tool inputs using ajv or zod |
-| Add request timeouts to tool handlers | p1 | small | Prevent long-running tool calls from blocking MCP connection |
-| Extract magic numbers to constants | p1 | small | session-manager.ts, embeddings/search.ts, lancedb.ts, entities.ts |
+| ~~Add request timeouts to tool handlers~~ | ✅ | small | Created timeout.ts with configurable timeouts (10s-120s), wrapped all tool handlers |
+| ~~Extract magic numbers to constants~~ | ✅ | small | Created constants.ts with 42 named constants, updated 25+ files |
 | Add test coverage | p1 | large | Unit tests for tools, integration tests for API clients, PII sanitization tests |
-| Fix fire-and-forget error handling | p1 | small | Add error boundaries to async embedding generation in entities.ts |
-| Add audit logging | p1 | small | Log all tool invocations with sanitized context |
-| Validate OpenAI API key format | p1 | small | Check key starts with sk-, mask in logs |
-| Set database file permissions | p1 | small | Restrict to 0700/0600 for security |
+| ~~Fix fire-and-forget error handling~~ | ✅ | small | Added try/catch around event emissions in entities.ts |
+| ~~Add audit logging~~ | ✅ | small | Created audit-logger.ts with PII sanitization, timing, structured logging |
+| ~~Validate OpenAI API key format~~ | ✅ | small | Created validation.ts, checks sk- prefix, masks keys in logs |
+| ~~Set database file permissions~~ | ✅ | small | Created file-security.ts, sets 0700/0600 on data dirs and files |
 | Switch to better-sqlite3 | p2 | medium | Native performance, WAL mode for crash safety, FTS5 support |
 | Add transaction support | p2 | medium | Atomic database operations across cache/entities/sessions |
 | Implement MCP Resources | p2 | medium | Add disney:// URIs for read-only entity lookups |
@@ -100,7 +100,7 @@ Current SDK: `@modelcontextprotocol/sdk@1.12.0` (needs upgrade for 2025-11-25 fe
 | Item | Priority | Effort | Notes |
 |------|----------|--------|-------|
 | Add @sentry/node with OTEL | p1 | small | Error tracking + distributed tracing in one |
-| Fix MCP logging (double-serialized JSON) | p1 | small | Use MCP's sendLoggingMessage() or plain text stderr to avoid nested JSON in inspector |
+| ~~Fix MCP logging (double-serialized JSON)~~ | ✅ | small | Uses MCP's sendLoggingMessage() for inspector + plain text stderr for console readability |
 | Implement structured logging | p1 | small | JSON logs with trace/span IDs, already partially done |
 | Add custom OTEL spans | p1 | medium | Spans for Disney API, DB queries, embeddings |
 | Export metrics to Prometheus | p2 | medium | Tool latency, cache hit rate, error rate |

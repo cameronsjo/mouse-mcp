@@ -20,7 +20,7 @@ import "dotenv/config";
 import "./instrumentation.js";
 
 import { DisneyMcpServer } from "./server.js";
-import { createLogger } from "./shared/index.js";
+import { createLogger, SENTRY_FLUSH_TIMEOUT_MS } from "./shared/index.js";
 import { Sentry } from "./shared/tracing.js";
 
 const logger = createLogger("Main");
@@ -36,7 +36,7 @@ async function main(): Promise<void> {
     Sentry.captureException(error);
 
     // Flush Sentry events before exit
-    await Sentry.close(2000);
+    await Sentry.close(SENTRY_FLUSH_TIMEOUT_MS);
 
     process.exit(1);
   }

@@ -19,6 +19,10 @@
 import { chromium, type Browser } from "playwright";
 import type { BrowserBackend } from "./types.js";
 import { createLogger } from "../../shared/index.js";
+import {
+  LIGHTPANDA_CONNECTION_TIMEOUT_MS,
+  LIGHTPANDA_HEALTH_CHECK_TIMEOUT_MS,
+} from "../../shared/constants.js";
 
 const logger = createLogger("LightpandaBackend");
 
@@ -43,7 +47,7 @@ export class LightpandaBackend implements BrowserBackend {
     try {
       // Playwright can connect to any CDP-compatible browser
       this.browser = await chromium.connectOverCDP(this.cdpEndpoint, {
-        timeout: 10000,
+        timeout: LIGHTPANDA_CONNECTION_TIMEOUT_MS,
       });
 
       const version = this.browser.version();
@@ -71,7 +75,7 @@ export class LightpandaBackend implements BrowserBackend {
     try {
       // Try to fetch the CDP /json/version endpoint
       const response = await fetch(`${this.cdpEndpoint}/json/version`, {
-        signal: AbortSignal.timeout(2000),
+        signal: AbortSignal.timeout(LIGHTPANDA_HEALTH_CHECK_TIMEOUT_MS),
       });
 
       if (response.ok) {

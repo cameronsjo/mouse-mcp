@@ -5,7 +5,15 @@
  */
 
 import type { ToolDefinition, ToolHandler } from "./types.js";
-import { formatErrorResponse, ValidationError } from "../shared/index.js";
+import {
+  formatErrorResponse,
+  ValidationError,
+  withTimeout,
+  TIMEOUTS,
+  DEFAULT_DISCOVER_LIMIT,
+  MAX_DISCOVER_LIMIT,
+  DEFAULT_MIN_SIMILARITY_SCORE,
+} from "../shared/index.js";
 import { semanticSearch } from "../embeddings/search.js";
 import type { DisneyEntity, DestinationId, EntityType } from "../types/index.js";
 
@@ -37,7 +45,7 @@ export const definition: ToolDefinition = {
       },
       limit: {
         type: "number",
-        description: "Maximum number of results (default: 5, max: 20)",
+        description: `Maximum number of results (default: ${DEFAULT_DISCOVER_LIMIT}, max: ${MAX_DISCOVER_LIMIT})`,
       },
     },
     required: ["query"],
@@ -45,69 +53,78 @@ export const definition: ToolDefinition = {
 };
 
 export const handler: ToolHandler = async (args) => {
-  const query = args.query as string | undefined;
-  const destination = args.destination as DestinationId | undefined;
-  const entityType = args.entityType as EntityType | undefined;
-  const limit = Math.min(Math.max((args.limit as number | undefined) ?? 5, 1), 20);
+  return withTimeout(
+    "discover",
+    async () => {
+      const query = args.query as string | undefined;
+      const destination = args.destination as DestinationId | undefined;
+      const entityType = args.entityType as EntityType | undefined;
+      const limit = Math.min(
+        Math.max((args.limit as number | undefined) ?? DEFAULT_DISCOVER_LIMIT, 1),
+        MAX_DISCOVER_LIMIT
+      );
 
-  if (!query) {
-    return formatErrorResponse(new ValidationError("'query' is required", "query", null));
-  }
+      if (!query) {
+        return formatErrorResponse(new ValidationError("'query' is required", "query", null));
+      }
 
-  try {
-    const results = await semanticSearch<DisneyEntity>(query, {
-      destinationId: destination,
-      entityType,
-      limit,
-      minScore: 0.3,
-    });
+      try {
+        const results = await semanticSearch<DisneyEntity>(query, {
+          destinationId: destination,
+          entityType,
+          limit,
+          minScore: DEFAULT_MIN_SIMILARITY_SCORE,
+        });
 
-    if (results.length === 0) {
-      return {
-        content: [
-          {
-            type: "text" as const,
-            text: JSON.stringify(
+        if (results.length === 0) {
+          return {
+            content: [
               {
-                query,
-                found: false,
-                message:
-                  "No matching entities found. Run initialize first to load data and generate embeddings.",
+                type: "text" as const,
+                text: JSON.stringify(
+                  {
+                    query,
+                    found: false,
+                    message:
+                      "No matching entities found. Run initialize first to load data and generate embeddings.",
+                  },
+                  null,
+                  2
+                ),
               },
-              null,
-              2
-            ),
-          },
-        ],
-      };
-    }
+            ],
+          };
+        }
 
-    return {
-      content: [
-        {
-          type: "text" as const,
-          text: JSON.stringify(
+        return {
+          content: [
             {
-              query,
-              found: true,
-              count: results.length,
-              results: results.map((r) => ({
-                name: r.entity.name,
-                id: r.entity.id,
-                type: r.entity.entityType,
-                destination: r.entity.destinationId,
-                park: r.entity.parkName,
-                score: Math.round(r.score * 100) / 100,
-                distance: Math.round(r.distance * 1000) / 1000,
-              })),
+              type: "text" as const,
+              text: JSON.stringify(
+                {
+                  query,
+                  found: true,
+                  count: results.length,
+                  results: results.map((r) => ({
+                    name: r.entity.name,
+                    id: r.entity.id,
+                    type: r.entity.entityType,
+                    destination: r.entity.destinationId,
+                    park: r.entity.parkName,
+                    score: Math.round(r.score * 100) / 100,
+                    distance: Math.round(r.distance * 1000) / 1000,
+                  })),
+                },
+                null,
+                2
+              ),
             },
-            null,
-            2
-          ),
-        },
-      ],
-    };
-  } catch (error) {
-    return formatErrorResponse(error);
-  }
+          ],
+        };
+      } catch (error) {
+        return formatErrorResponse(error);
+      }
+    },
+    TIMEOUTS.SEARCH
+  );
 };

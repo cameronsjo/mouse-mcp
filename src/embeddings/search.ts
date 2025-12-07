@@ -7,6 +7,12 @@
 import type { DisneyEntity, DestinationId, EntityType } from "../types/index.js";
 import { getEmbeddingProvider } from "./index.js";
 import {
+  DEFAULT_SEARCH_LIMIT,
+  DEFAULT_MIN_SIMILARITY_SCORE,
+  SEMANTIC_SEARCH_LIMIT_MULTIPLIER,
+  EMBEDDING_BATCH_SIZE,
+} from "../shared/constants.js";
+import {
   vectorSearch,
   saveEmbedding,
   saveEmbeddingsBatch,
@@ -52,7 +58,7 @@ export async function semanticSearch<T extends DisneyEntity>(
   options: SemanticSearchOptions = {}
 ): Promise<Array<SemanticSearchResult<T>>> {
   return withSpan(`embedding.semantic-search`, SpanOperations.EMBEDDING_SEARCH, async (span) => {
-    const { limit = 10, minScore = 0.3 } = options;
+    const { limit = DEFAULT_SEARCH_LIMIT, minScore = DEFAULT_MIN_SIMILARITY_SCORE } = options;
 
     span?.setAttribute("search.query", query);
     span?.setAttribute("search.limit", limit);
@@ -75,7 +81,7 @@ export async function semanticSearch<T extends DisneyEntity>(
 
     // Search LanceDB with filters
     const searchResults = await vectorSearch(queryVector, provider.fullModelName, {
-      limit: limit * 2, // Get extra to filter by score
+      limit: limit * SEMANTIC_SEARCH_LIMIT_MULTIPLIER,
       entityType: options.entityType,
       destinationId: options.destinationId,
     });
@@ -209,10 +215,8 @@ export async function ensureEmbeddingsBatch(entities: DisneyEntity[]): Promise<n
     });
 
     // Process in batches to avoid memory issues
-    const BATCH_SIZE = 50;
-
-    for (let i = 0; i < needsEmbedding.length; i += BATCH_SIZE) {
-      const batch = needsEmbedding.slice(i, i + BATCH_SIZE);
+    for (let i = 0; i < needsEmbedding.length; i += EMBEDDING_BATCH_SIZE) {
+      const batch = needsEmbedding.slice(i, i + EMBEDDING_BATCH_SIZE);
       const texts = batch.map((b) => b.text);
 
       const results = await provider.embedBatch(texts);

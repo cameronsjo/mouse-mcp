@@ -7,6 +7,7 @@
 import { getDatabase, persistDatabase } from "./database.js";
 import { createLogger } from "../shared/logger.js";
 import { withSpan, SpanAttributes, SpanOperations } from "../shared/index.js";
+import { DEFAULT_CACHE_TTL_HOURS, MS_PER_HOUR } from "../shared/constants.js";
 
 const logger = createLogger("Cache");
 
@@ -18,7 +19,7 @@ export interface CacheEntry<T> {
 }
 
 export interface CacheSetOptions {
-  /** TTL in hours (default: 24) */
+  /** TTL in hours */
   ttlHours?: number;
   /** Data source identifier */
   source?: "disney" | "themeparks-wiki";
@@ -83,14 +84,14 @@ export async function cacheSet(
     span?.setAttribute(SpanAttributes.CACHE_KEY, key);
 
     const db = await getDatabase();
-    const ttlHours = options.ttlHours ?? 24;
+    const ttlHours = options.ttlHours ?? DEFAULT_CACHE_TTL_HOURS;
     const source = options.source ?? "themeparks-wiki";
 
     span?.setAttribute("cache.ttl_hours", ttlHours);
 
     const now = new Date();
     const cachedAt = now.toISOString();
-    const expiresAt = new Date(now.getTime() + ttlHours * 60 * 60 * 1000).toISOString();
+    const expiresAt = new Date(now.getTime() + ttlHours * MS_PER_HOUR).toISOString();
 
     db.run(
       `INSERT OR REPLACE INTO cache (key, data, source, cached_at, expires_at)

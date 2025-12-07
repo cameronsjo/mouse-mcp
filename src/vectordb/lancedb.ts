@@ -10,8 +10,14 @@ import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { mkdir } from "node:fs/promises";
 import { createLogger } from "../shared/logger.js";
-import { withSpan, SpanAttributes, SpanOperations } from "../shared/index.js";
+import {
+  withSpan,
+  SpanAttributes,
+  SpanOperations,
+  setSecureDirectoryPermissions,
+} from "../shared/index.js";
 import { escapeSqlIdentifier, escapeSqlValue } from "./sql-escaping.js";
+import { LANCEDB_DELETE_CHUNK_SIZE, DEFAULT_SEARCH_LIMIT } from "../shared/constants.js";
 
 const logger = createLogger("LanceDB");
 
@@ -72,8 +78,9 @@ export async function connectLanceDB(): Promise<lancedb.Connection> {
 
   const path = getDbPath();
 
-  // Ensure directory exists
+  // Ensure directory exists with secure permissions
   await mkdir(path, { recursive: true });
+  await setSecureDirectoryPermissions(path);
 
   logger.info("Connecting to LanceDB", { path });
   db = await lancedb.connect(path);
@@ -170,9 +177,8 @@ export async function saveEmbeddingsBatch(records: EmbeddingRecord[]): Promise<v
     );
 
     // Delete in chunks to avoid query length limits
-    const CHUNK_SIZE = 50;
-    for (let i = 0; i < deleteConditions.length; i += CHUNK_SIZE) {
-      const chunk = deleteConditions.slice(i, i + CHUNK_SIZE);
+    for (let i = 0; i < deleteConditions.length; i += LANCEDB_DELETE_CHUNK_SIZE) {
+      const chunk = deleteConditions.slice(i, i + LANCEDB_DELETE_CHUNK_SIZE);
       try {
         await table.delete(chunk.join(" OR "));
       } catch {
@@ -234,7 +240,7 @@ export async function vectorSearch(
   } = {}
 ): Promise<VectorSearchResult[]> {
   return withSpan(`vectordb.vector-search`, SpanOperations.DB_QUERY, async (span) => {
-    const { limit = 10, entityType, destinationId } = options;
+    const { limit = DEFAULT_SEARCH_LIMIT, entityType, destinationId } = options;
 
     span?.setAttribute(SpanAttributes.DB_SYSTEM, "lancedb");
     span?.setAttribute(SpanAttributes.DB_OPERATION, "vector_search");

@@ -7,6 +7,8 @@
 
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
+import { validateOpenAIKeyIfProvided } from "./validation.js";
+import { DEFAULT_SESSION_REFRESH_BUFFER_MINUTES, BROWSER_TIMEOUT_MS } from "../shared/constants.js";
 
 export type LogLevel = "DEBUG" | "INFO" | "WARN" | "ERROR";
 
@@ -64,20 +66,35 @@ export function getConfig(): Config {
   const projectRoot = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
   const defaultDbPath = join(projectRoot, ".data", "disney.db");
 
+  // Validate OpenAI API key if provided
+  // WHY: Fail fast with clear error message if key format is invalid
+  const openaiApiKey = process.env.OPENAI_API_KEY;
+  try {
+    validateOpenAIKeyIfProvided(openaiApiKey);
+  } catch (error) {
+    // Re-throw with additional context
+    throw new Error(
+      `Invalid OPENAI_API_KEY environment variable: ${error instanceof Error ? error.message : String(error)}`
+    );
+  }
+
   cachedConfig = {
     nodeEnv,
     logLevel: parseLogLevel(process.env.MOUSE_MCP_LOG_LEVEL, nodeEnv),
     dbPath: process.env.MOUSE_MCP_DB_PATH ?? defaultDbPath,
     // Daily refresh - check once per day
-    refreshBufferMinutes: parseInt(process.env.MOUSE_MCP_REFRESH_BUFFER ?? "60", 10),
-    timeoutMs: parseInt(process.env.MOUSE_MCP_TIMEOUT ?? "30000", 10),
+    refreshBufferMinutes: parseInt(
+      process.env.MOUSE_MCP_REFRESH_BUFFER ?? String(DEFAULT_SESSION_REFRESH_BUFFER_MINUTES),
+      10
+    ),
+    timeoutMs: parseInt(process.env.MOUSE_MCP_TIMEOUT ?? String(BROWSER_TIMEOUT_MS), 10),
     showBrowser: process.env.MOUSE_MCP_SHOW_BROWSER === "true",
     // Browser backend configuration
     browserBackend: parseBrowserBackend(process.env.MOUSE_MCP_BROWSER),
     cdpEndpoint: process.env.MOUSE_MCP_CDP_ENDPOINT ?? "http://127.0.0.1:9222",
     // Embedding configuration
     embeddingProvider: parseEmbeddingProvider(process.env.MOUSE_MCP_EMBEDDING_PROVIDER),
-    openaiApiKey: process.env.OPENAI_API_KEY,
+    openaiApiKey,
     // Observability configuration
     observability: {
       sentryDsn: process.env.MOUSE_MCP_SENTRY_DSN,

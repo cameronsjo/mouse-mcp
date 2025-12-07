@@ -14,6 +14,7 @@ import { NodeSDK } from "@opentelemetry/sdk-node";
 import { getNodeAutoInstrumentations } from "@opentelemetry/auto-instrumentations-node";
 import { trace, context, type Span, type Tracer } from "@opentelemetry/api";
 import * as Sentry from "@sentry/node";
+import { SENTRY_FLUSH_TIMEOUT_MS } from "../shared/constants.js";
 
 let sdk: NodeSDK | null = null;
 let isInitialized = false;
@@ -90,7 +91,7 @@ export async function shutdownObservability(): Promise<void> {
   if (sdk) {
     console.log("[Observability] Shutting down...");
     await sdk.shutdown();
-    await Sentry.close(2000); // Wait up to 2 seconds for Sentry to flush
+    await Sentry.close(SENTRY_FLUSH_TIMEOUT_MS);
     console.log("[Observability] Shutdown complete");
   }
 }

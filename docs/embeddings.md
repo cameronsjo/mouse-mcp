@@ -7,20 +7,20 @@ This document describes the embedding system that powers semantic search in mous
 The embedding system enables natural language queries like "thrill rides for teenagers" or "romantic dinner spots" by converting entities and queries into vector representations and finding similar matches.
 
 ```
-┌───────────────────────────────────────────────────────────────────────┐
-│                        Embedding System                                │
-│                                                                        │
+┌──────────────────────────────────────────────────────────────────────┐
+│                        Embedding System                              │
+│                                                                      │
 │  ┌────────────────┐     ┌────────────────┐     ┌────────────────┐    │
 │  │ Text Builder   │────▶│   Provider     │────▶│   Storage      │    │
 │  │ (preprocess)   │     │  (OpenAI/TF)   │     │   (SQLite)     │    │
 │  └────────────────┘     └────────────────┘     └────────────────┘    │
-│                                                         │             │
-│                                                         ▼             │
+│                                                         │            │
+│                                                         ▼            │
 │  ┌────────────────┐     ┌────────────────┐     ┌────────────────┐    │
 │  │ Query          │────▶│   Similarity   │────▶│   Results      │    │
 │  │ Embedding      │     │   Calculation  │     │   Ranking      │    │
 │  └────────────────┘     └────────────────┘     └────────────────┘    │
-└───────────────────────────────────────────────────────────────────────┘
+└──────────────────────────────────────────────────────────────────────┘
 ```
 
 ## Embedding Providers

@@ -10,6 +10,19 @@ import { type Browser, type BrowserContext, type Page } from "playwright";
 import { createLogger } from "../shared/index.js";
 import { getConfig } from "../config/index.js";
 import {
+  BROWSER_VIEWPORT_WIDTH,
+  BROWSER_VIEWPORT_HEIGHT,
+  DEFAULT_LOCALE,
+  DEFAULT_ACCEPT_LANGUAGE,
+  COOKIE_CONSENT_WAIT_MS,
+  COOKIE_CONSENT_ACCEPTED_WAIT_MS,
+  SESSION_COOKIE_POLL_INTERVAL_MS,
+  SESSION_COOKIE_MAX_ATTEMPTS,
+  DEFAULT_SESSION_HOURS,
+  MS_PER_HOUR,
+  MS_PER_SECOND,
+} from "../shared/constants.js";
+import {
   type BrowserBackend,
   PlaywrightBackend,
   LightpandaBackend,
@@ -39,9 +52,6 @@ const CONSENT_SELECTORS = [
   '[data-testid="cookie-accept"]',
   'button[aria-label*="Accept"]',
 ];
-
-/** Default session duration in hours (8 hours matches Disney token TTL) */
-const DEFAULT_SESSION_HOURS = 8;
 
 /**
  * Session manager for Disney API authentication.
@@ -141,8 +151,8 @@ export class SessionManager {
 
       const context = await browser.newContext({
         userAgent: this.getUserAgent(),
-        viewport: { width: 1920, height: 1080 },
-        locale: "en-US",
+        viewport: { width: BROWSER_VIEWPORT_WIDTH, height: BROWSER_VIEWPORT_HEIGHT },
+        locale: DEFAULT_LOCALE,
         timezoneId: this.getTimezone(destination),
       });
 
@@ -201,7 +211,7 @@ export class SessionManager {
     const headers: Record<string, string> = {
       Cookie: cookieHeader,
       Accept: "application/json",
-      "Accept-Language": "en-US,en;q=0.9",
+      "Accept-Language": DEFAULT_ACCEPT_LANGUAGE,
     };
 
     // Add CSRF token if available
@@ -300,7 +310,7 @@ export class SessionManager {
 
   private async handleCookieConsent(page: Page): Promise<void> {
     // Wait a bit for consent banner to appear
-    await page.waitForTimeout(2000);
+    await page.waitForTimeout(COOKIE_CONSENT_WAIT_MS);
 
     for (const selector of CONSENT_SELECTORS) {
       try {
@@ -308,7 +318,7 @@ export class SessionManager {
         if (button) {
           await button.click();
           logger.debug("Accepted cookie consent");
-          await page.waitForTimeout(1000);
+          await page.waitForTimeout(COOKIE_CONSENT_ACCEPTED_WAIT_MS);
           return;
         }
       } catch {
@@ -319,10 +329,7 @@ export class SessionManager {
   }
 
   private async waitForSessionCookies(context: BrowserContext): Promise<void> {
-    const maxAttempts = 15;
-    const pollInterval = 1000;
-
-    for (let attempt = 0; attempt < maxAttempts; attempt++) {
+    for (let attempt = 0; attempt < SESSION_COOKIE_MAX_ATTEMPTS; attempt++) {
       const cookies = await context.cookies();
 
       // The critical cookie is __d - a JWT containing the access token
@@ -342,7 +349,7 @@ export class SessionManager {
         return;
       }
 
-      await new Promise((resolve) => setTimeout(resolve, pollInterval));
+      await new Promise((resolve) => setTimeout(resolve, SESSION_COOKIE_POLL_INTERVAL_MS));
     }
 
     logger.warn("Disney auth cookies not detected after max attempts");
@@ -442,7 +449,7 @@ export class SessionManager {
         ) as { iat?: number; expires_in?: string };
         // payload.iat is when token was issued, expires_in is seconds
         if (payload.iat !== undefined && payload.expires_in) {
-          const expiresAtMs = (payload.iat + parseInt(payload.expires_in, 10)) * 1000;
+          const expiresAtMs = (payload.iat + parseInt(payload.expires_in, 10)) * MS_PER_SECOND;
           return new Date(expiresAtMs).toISOString();
         }
       } catch {
@@ -470,7 +477,7 @@ export class SessionManager {
 
     const validExpirations = sessionCookies
       .filter((c) => c.expires > 0)
-      .map((c) => c.expires * 1000); // Convert to milliseconds
+      .map((c) => c.expires * MS_PER_SECOND);
 
     if (validExpirations.length > 0) {
       const earliestExpiry = Math.min(...validExpirations);
@@ -480,7 +487,7 @@ export class SessionManager {
     }
 
     // Default expiration (8 hours, matching Disney's token TTL)
-    return new Date(Date.now() + DEFAULT_SESSION_HOURS * 60 * 60 * 1000).toISOString();
+    return new Date(Date.now() + DEFAULT_SESSION_HOURS * MS_PER_HOUR).toISOString();
   }
 
   private getTimezone(destination: DestinationId): string {

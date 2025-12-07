@@ -6,7 +6,7 @@
 
 import type { ToolDefinition, ToolHandler } from "./types.js";
 import { getDisneyFinderClient } from "../clients/index.js";
-import { formatErrorResponse, ValidationError } from "../shared/index.js";
+import { formatErrorResponse, ValidationError, withTimeout, TIMEOUTS } from "../shared/index.js";
 import type { DisneyAttraction, DestinationId } from "../types/index.js";
 
 export const definition: ToolDefinition = {
@@ -59,44 +59,50 @@ export const definition: ToolDefinition = {
 };
 
 export const handler: ToolHandler = async (args) => {
-  // Validate destination
-  const destination = args.destination as string | undefined;
-  if (!destination || !["wdw", "dlr"].includes(destination)) {
-    return formatErrorResponse(
-      new ValidationError("destination must be 'wdw' or 'dlr'", "destination", destination)
-    );
-  }
+  return withTimeout(
+    "find_attractions",
+    async () => {
+      // Validate destination
+      const destination = args.destination as string | undefined;
+      if (!destination || !["wdw", "dlr"].includes(destination)) {
+        return formatErrorResponse(
+          new ValidationError("destination must be 'wdw' or 'dlr'", "destination", destination)
+        );
+      }
 
-  const parkId = args.parkId as string | undefined;
-  const filters = (args.filters as Record<string, unknown>) ?? {};
+      const parkId = args.parkId as string | undefined;
+      const filters = (args.filters as Record<string, unknown>) ?? {};
 
-  try {
-    const client = getDisneyFinderClient();
-    let attractions = await client.getAttractions(destination as DestinationId, parkId);
+      try {
+        const client = getDisneyFinderClient();
+        let attractions = await client.getAttractions(destination as DestinationId, parkId);
 
-    // Apply filters
-    attractions = applyFilters(attractions, filters);
+        // Apply filters
+        attractions = applyFilters(attractions, filters);
 
-    return {
-      content: [
-        {
-          type: "text" as const,
-          text: JSON.stringify(
+        return {
+          content: [
             {
-              destination,
-              parkId: parkId ?? null,
-              count: attractions.length,
-              attractions: attractions.map(formatAttraction),
+              type: "text" as const,
+              text: JSON.stringify(
+                {
+                  destination,
+                  parkId: parkId ?? null,
+                  count: attractions.length,
+                  attractions: attractions.map(formatAttraction),
+                },
+                null,
+                2
+              ),
             },
-            null,
-            2
-          ),
-        },
-      ],
-    };
-  } catch (error) {
-    return formatErrorResponse(error);
-  }
+          ],
+        };
+      } catch (error) {
+        return formatErrorResponse(error);
+      }
+    },
+    TIMEOUTS.DEFAULT
+  );
 };
 
 function applyFilters(

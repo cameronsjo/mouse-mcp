@@ -4,6 +4,8 @@
  * Pure cosine similarity implementation for vector search.
  */
 
+import { NORMALIZED_SCORE_THRESHOLD } from "../shared/constants.js";
+
 /**
  * Calculate cosine similarity between two vectors.
  * Returns a value between -1 and 1 (1 = identical, 0 = orthogonal, -1 = opposite).
@@ -60,7 +62,10 @@ export function topKSimilar(
  * Convert similarity score (0-1) to a normalized relevance score.
  * Applies a threshold and rescales for better UX.
  */
-export function normalizeScore(similarity: number, threshold = 0.3): number {
+export function normalizeScore(
+  similarity: number,
+  threshold: number = NORMALIZED_SCORE_THRESHOLD
+): number {
   if (similarity < threshold) {
     return 0;
   }

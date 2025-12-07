@@ -7,6 +7,7 @@
 import type { EmbeddingProvider, EmbeddingResult, BatchEmbeddingResult } from "./types.js";
 import { createLogger } from "../shared/logger.js";
 import { withSpan, SpanAttributes, SpanOperations } from "../shared/index.js";
+import { validateOpenAIKey, maskApiKey } from "../config/validation.js";
 
 const logger = createLogger("OpenAIEmbeddings");
 
@@ -27,10 +28,19 @@ export class OpenAIEmbeddingProvider implements EmbeddingProvider {
   private readonly baseUrl = "https://api.openai.com/v1";
 
   constructor(apiKey: string, model?: string) {
+    // Validate API key format early
+    validateOpenAIKey(apiKey);
+
     this.apiKey = apiKey;
     this.modelId = model ?? DEFAULT_MODEL;
     this.fullModelName = `openai:${this.modelId}`;
     this.dimension = MODEL_DIMENSIONS[this.modelId] ?? 1536;
+
+    logger.debug("OpenAI embedding provider initialized", {
+      model: this.modelId,
+      dimension: this.dimension,
+      maskedKey: maskApiKey(apiKey),
+    });
   }
 
   async isAvailable(): Promise<boolean> {

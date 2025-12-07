@@ -6,6 +6,11 @@
 
 import Fuse from "fuse.js";
 import type { DisneyEntity, SearchResult } from "../types/index.js";
+import {
+  DEFAULT_FUZZY_SEARCH_THRESHOLD,
+  DEFAULT_SEARCH_LIMIT,
+  FUZZY_SEARCH_MIN_MATCH_LENGTH,
+} from "./constants.js";
 
 export interface FuzzyMatchOptions {
   /** Minimum score threshold (0-1, higher = stricter) */
@@ -15,8 +20,8 @@ export interface FuzzyMatchOptions {
 }
 
 const DEFAULT_OPTIONS: FuzzyMatchOptions = {
-  threshold: 0.4,
-  limit: 10,
+  threshold: DEFAULT_FUZZY_SEARCH_THRESHOLD,
+  limit: DEFAULT_SEARCH_LIMIT,
 };
 
 /**
@@ -40,7 +45,7 @@ export function fuzzySearch<T extends DisneyEntity>(
     // - minMatchCharLength: Avoid matching on very short substrings
     // - shouldSort: Return best matches first
     ignoreLocation: true,
-    minMatchCharLength: 2,
+    minMatchCharLength: FUZZY_SEARCH_MIN_MATCH_LENGTH,
     shouldSort: true,
   });
 

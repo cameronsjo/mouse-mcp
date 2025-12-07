@@ -11,7 +11,13 @@ import { getConfig } from "../config/index.js";
 import { createLogger } from "../shared/logger.js";
 import { DatabaseError } from "../shared/errors.js";
 import { SCHEMA_SQL, SCHEMA_VERSION } from "./schema.js";
-import { withSpan, SpanAttributes, SpanOperations } from "../shared/index.js";
+import {
+  withSpan,
+  SpanAttributes,
+  SpanOperations,
+  setSecureFilePermissionsSync,
+  setSecureDirectoryPermissionsSync,
+} from "../shared/index.js";
 
 const logger = createLogger("Database");
 
@@ -41,11 +47,12 @@ async function initializeDatabase(): Promise<SqlJsDatabase> {
 
     logger.info("Initializing database", { path: dbPath });
 
-    // Ensure directory exists
+    // Ensure directory exists with secure permissions
     const dir = dirname(dbPath);
     if (!existsSync(dir)) {
       mkdirSync(dir, { recursive: true });
-      logger.debug("Created database directory", { dir });
+      setSecureDirectoryPermissionsSync(dir);
+      logger.debug("Created database directory with secure permissions", { dir });
     }
 
     try {
@@ -141,6 +148,7 @@ function checkSchemaVersion(database: SqlJsDatabase): boolean {
 
 /**
  * Save the database to disk.
+ * WHY: Set secure permissions on database file after writing.
  */
 function saveDatabase(database: SqlJsDatabase): void {
   if (!dbPath) return;
@@ -148,7 +156,14 @@ function saveDatabase(database: SqlJsDatabase): void {
   try {
     const data = database.export();
     const buffer = Buffer.from(data);
+    const isNewFile = !existsSync(dbPath);
     writeFileSync(dbPath, buffer);
+
+    // Set secure permissions on new database files
+    if (isNewFile) {
+      setSecureFilePermissionsSync(dbPath);
+    }
+
     logger.debug("Database saved to disk");
   } catch (error) {
     logger.error("Failed to save database", error);

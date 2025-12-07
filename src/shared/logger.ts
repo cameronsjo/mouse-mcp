@@ -1,18 +1,22 @@
 /**
  * Structured Logger
  *
- * Dual output: stderr for MCP compatibility + file logging for debugging.
+ * Dual output: MCP logging protocol for inspector + file logging for debugging.
  * Log files are written to .logs/ directory with daily rotation.
+ *
+ * Uses MCP SDK's sendLoggingMessage() to avoid double-serialized JSON in inspector.
+ * Console output (stderr) uses plain text for human readability.
  *
  * Integrates with OpenTelemetry to include trace/span IDs in log entries
  * for distributed tracing correlation.
  */
 
-import { appendFileSync, mkdirSync, existsSync } from "node:fs";
+import { appendFileSync, mkdirSync, existsSync, chmodSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { trace } from "@opentelemetry/api";
 import { getConfig, type LogLevel } from "../config/index.js";
+import type { Server } from "@modelcontextprotocol/sdk/server/index.js";
 
 const LOG_LEVELS: Record<LogLevel, number> = {
   DEBUG: 0,
@@ -21,7 +25,32 @@ const LOG_LEVELS: Record<LogLevel, number> = {
   ERROR: 3,
 };
 
+/**
+ * Map our log levels to MCP logging levels.
+ * MCP supports: debug, info, notice, warning, error, critical, alert, emergency
+ */
+const MCP_LOG_LEVEL_MAP: Record<LogLevel, "debug" | "info" | "warning" | "error"> = {
+  DEBUG: "debug",
+  INFO: "info",
+  WARN: "warning",
+  ERROR: "error",
+};
+
 export type LogContext = Record<string, unknown>;
+
+/**
+ * Global MCP server instance for logging.
+ * Set via setMcpServer() during server initialization.
+ */
+let mcpServer: Server | null = null;
+
+/**
+ * Set the MCP server instance for logging.
+ * Call this during server initialization to enable MCP logging protocol.
+ */
+export function setMcpServer(server: Server): void {
+  mcpServer = server;
+}
 
 /**
  * Get current trace context for log correlation.
@@ -45,13 +74,30 @@ function getProjectRoot(): string {
   return join(dirname(currentFile), "..", "..");
 }
 
+/**
+ * Set secure permissions on a path (Unix only).
+ * WHY: Extracted to avoid circular dependency with file-security module.
+ */
+function setSecurePermissions(path: string, mode: number): void {
+  if (process.platform === "win32") {
+    return; // Skip on Windows
+  }
+
+  try {
+    chmodSync(path, mode);
+  } catch {
+    // Silently fail - don't break logging
+  }
+}
+
 /** Get the log file path for today */
 function getLogFilePath(): string {
   const logsDir = join(getProjectRoot(), ".logs");
 
-  // Ensure logs directory exists
+  // Ensure logs directory exists with secure permissions
   if (!existsSync(logsDir)) {
     mkdirSync(logsDir, { recursive: true });
+    setSecurePermissions(logsDir, 0o700);
   }
 
   const today = new Date().toISOString().split("T")[0]; // YYYY-MM-DD
@@ -62,13 +108,22 @@ function getLogFilePath(): string {
 function writeToFile(entry: string): void {
   try {
     const logPath = getLogFilePath();
+    const isNewFile = !existsSync(logPath);
     appendFileSync(logPath, entry + "\n");
+
+    // Set secure permissions on new log files
+    if (isNewFile) {
+      setSecurePermissions(logPath, 0o600);
+    }
   } catch {
     // Silently fail file writes - don't break the server
   }
 }
 
-/** Format log entry for human-readable file output */
+/**
+ * Format log entry for human-readable output (console + file).
+ * WHY: Plain text format prevents double-serialized JSON in MCP inspector.
+ */
 function formatLogEntry(
   timestamp: string,
   level: LogLevel,
@@ -129,23 +184,32 @@ export class Logger {
     const timestamp = new Date().toISOString();
     const traceContext = getTraceContext();
 
-    const entry = {
-      timestamp,
-      level,
+    // Build structured data for MCP logging
+    const structuredData: LogContext = {
       context: this.context,
-      message,
-      // Include trace context for correlation with distributed traces
       ...(traceContext.traceId ? { traceId: traceContext.traceId } : {}),
       ...(traceContext.spanId ? { spanId: traceContext.spanId } : {}),
-      ...(data && Object.keys(data).length > 0 ? { data } : {}),
+      ...(data && Object.keys(data).length > 0 ? data : {}),
     };
 
-    // Write JSON to stderr (MCP protocol uses stdout)
-    process.stderr.write(JSON.stringify(entry) + "\n");
+    // Send to MCP inspector via logging protocol (prevents double-serialized JSON)
+    // WHY: MCP inspector expects structured logs via sendLoggingMessage(), not JSON on stderr
+    if (mcpServer) {
+      void mcpServer.sendLoggingMessage({
+        level: MCP_LOG_LEVEL_MAP[level],
+        data: structuredData,
+        logger: this.context,
+      });
+    }
 
-    // Write human-readable format to log file (include trace ID if present)
+    // Write plain text to stderr for console/terminal readability
+    // WHY: Developers reading logs in terminal need human-readable format
     const tracePrefix = traceContext.traceId ? ` [${traceContext.traceId.slice(0, 8)}]` : "";
-    writeToFile(formatLogEntry(timestamp, level, this.context + tracePrefix, message, data));
+    const plainText = formatLogEntry(timestamp, level, this.context + tracePrefix, message, data);
+    process.stderr.write(plainText + "\n");
+
+    // Write human-readable format to log file
+    writeToFile(plainText);
   }
 }
 

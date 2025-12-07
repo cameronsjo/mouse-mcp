@@ -6,7 +6,16 @@
 
 import type { ToolDefinition, ToolHandler } from "./types.js";
 import { getDisneyFinderClient } from "../clients/index.js";
-import { formatErrorResponse, fuzzySearch, ValidationError } from "../shared/index.js";
+import {
+  formatErrorResponse,
+  fuzzySearch,
+  ValidationError,
+  withTimeout,
+  TIMEOUTS,
+  EXTENDED_SEARCH_LIMIT,
+  DEFAULT_FUZZY_SEARCH_THRESHOLD,
+  DEFAULT_DISCOVER_LIMIT,
+} from "../shared/index.js";
 import {
   getEntityById,
   searchEntitiesByName,
@@ -49,38 +58,155 @@ export const definition: ToolDefinition = {
 };
 
 export const handler: ToolHandler = async (args) => {
-  const id = args.id as string | undefined;
-  const name = args.name as string | undefined;
-  const destination = args.destination as DestinationId | undefined;
-  const entityType = args.entityType as EntityType | undefined;
+  return withTimeout(
+    "search",
+    async () => {
+      const id = args.id as string | undefined;
+      const name = args.name as string | undefined;
+      const destination = args.destination as DestinationId | undefined;
+      const entityType = args.entityType as EntityType | undefined;
 
-  // Require either id or name
-  if (!id && !name) {
-    return formatErrorResponse(
-      new ValidationError("Either 'id' or 'name' is required", "id|name", null)
-    );
-  }
+      // Require either id or name
+      if (!id && !name) {
+        return formatErrorResponse(
+          new ValidationError("Either 'id' or 'name' is required", "id|name", null)
+        );
+      }
 
-  try {
-    // Direct ID lookup
-    if (id) {
-      const entity = await getEntityById(id);
+      try {
+        // Direct ID lookup
+        if (id) {
+          const entity = await getEntityById(id);
 
-      if (!entity) {
-        // Try fetching from API if not in local DB
-        const client = getDisneyFinderClient();
-        const fetched = await client.getEntityById(id);
+          if (!entity) {
+            // Try fetching from API if not in local DB
+            const client = getDisneyFinderClient();
+            const fetched = await client.getEntityById(id);
 
-        if (!fetched) {
+            if (!fetched) {
+              return {
+                content: [
+                  {
+                    type: "text" as const,
+                    text: JSON.stringify(
+                      {
+                        id,
+                        found: false,
+                        message: "No entity found with this ID",
+                      },
+                      null,
+                      2
+                    ),
+                  },
+                ],
+              };
+            }
+
+            return formatEntityResult(fetched);
+          }
+
+          return formatEntityResult(entity);
+        }
+
+        // Fuzzy name search
+        if (name) {
+          // First try fuzzy search in database
+          let candidates = await searchEntitiesByName<DisneyEntity>(name, {
+            destinationId: destination,
+            entityType,
+            limit: EXTENDED_SEARCH_LIMIT,
+          });
+
+          // If no results in DB, fetch from API first
+          if (candidates.length === 0) {
+            const client = getDisneyFinderClient();
+            const destinations = destination ? [destination] : (["wdw", "dlr"] as DestinationId[]);
+
+            for (const dest of destinations) {
+              if (!entityType || entityType === "ATTRACTION") {
+                await client.getAttractions(dest);
+              }
+              if (!entityType || entityType === "RESTAURANT") {
+                await client.getDining(dest);
+              }
+              if (!entityType || entityType === "SHOW") {
+                await client.getShows(dest);
+              }
+            }
+
+            // Try search again
+            candidates = await searchEntitiesByName<DisneyEntity>(name, {
+              destinationId: destination,
+              entityType,
+              limit: EXTENDED_SEARCH_LIMIT,
+            });
+          }
+
+          // If still no results, try loading from DB and fuzzy matching
+          if (candidates.length === 0) {
+            const destinations = destination ? [destination] : (["wdw", "dlr"] as DestinationId[]);
+            candidates = [];
+
+            for (const dest of destinations) {
+              if (!entityType || entityType === "ATTRACTION") {
+                candidates.push(...(await getAttractions(dest)));
+              }
+              if (!entityType || entityType === "RESTAURANT") {
+                candidates.push(...(await getDining(dest)));
+              }
+              if (!entityType || entityType === "SHOW") {
+                candidates.push(...(await getShows(dest)));
+              }
+            }
+          }
+
+          // Perform fuzzy matching
+          const matches = fuzzySearch(name, candidates, {
+            threshold: DEFAULT_FUZZY_SEARCH_THRESHOLD,
+            limit: DEFAULT_DISCOVER_LIMIT,
+          });
+
+          if (matches.length === 0) {
+            return {
+              content: [
+                {
+                  type: "text" as const,
+                  text: JSON.stringify(
+                    {
+                      query: name,
+                      found: false,
+                      message: "No matching entities found. Try discover for conceptual searches.",
+                    },
+                    null,
+                    2
+                  ),
+                },
+              ],
+            };
+          }
+
+          // Return best match with alternatives
+          // WHY: Safe to assert - we checked matches.length > 0 above
+          // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
+          const bestMatch = matches[0]!;
+          const alternatives = matches.slice(1);
+
           return {
             content: [
               {
                 type: "text" as const,
                 text: JSON.stringify(
                   {
-                    id,
-                    found: false,
-                    message: "No entity found with this ID",
+                    query: name,
+                    found: true,
+                    confidence: Math.round(bestMatch.score * 100) / 100,
+                    bestMatch: formatEntity(bestMatch.entity),
+                    alternatives: alternatives.map((m) => ({
+                      name: m.entity.name,
+                      id: m.entity.id,
+                      type: m.entity.entityType,
+                      score: Math.round(m.score * 100) / 100,
+                    })),
                   },
                   null,
                   2
@@ -90,124 +216,13 @@ export const handler: ToolHandler = async (args) => {
           };
         }
 
-        return formatEntityResult(fetched);
+        return formatErrorResponse(new Error("Unexpected state"));
+      } catch (error) {
+        return formatErrorResponse(error);
       }
-
-      return formatEntityResult(entity);
-    }
-
-    // Fuzzy name search
-    if (name) {
-      // First try fuzzy search in database
-      let candidates = await searchEntitiesByName<DisneyEntity>(name, {
-        destinationId: destination,
-        entityType,
-        limit: 20,
-      });
-
-      // If no results in DB, fetch from API first
-      if (candidates.length === 0) {
-        const client = getDisneyFinderClient();
-        const destinations = destination ? [destination] : (["wdw", "dlr"] as DestinationId[]);
-
-        for (const dest of destinations) {
-          if (!entityType || entityType === "ATTRACTION") {
-            await client.getAttractions(dest);
-          }
-          if (!entityType || entityType === "RESTAURANT") {
-            await client.getDining(dest);
-          }
-          if (!entityType || entityType === "SHOW") {
-            await client.getShows(dest);
-          }
-        }
-
-        // Try search again
-        candidates = await searchEntitiesByName<DisneyEntity>(name, {
-          destinationId: destination,
-          entityType,
-          limit: 20,
-        });
-      }
-
-      // If still no results, try loading from DB and fuzzy matching
-      if (candidates.length === 0) {
-        const destinations = destination ? [destination] : (["wdw", "dlr"] as DestinationId[]);
-        candidates = [];
-
-        for (const dest of destinations) {
-          if (!entityType || entityType === "ATTRACTION") {
-            candidates.push(...(await getAttractions(dest)));
-          }
-          if (!entityType || entityType === "RESTAURANT") {
-            candidates.push(...(await getDining(dest)));
-          }
-          if (!entityType || entityType === "SHOW") {
-            candidates.push(...(await getShows(dest)));
-          }
-        }
-      }
-
-      // Perform fuzzy matching
-      const matches = fuzzySearch(name, candidates, {
-        threshold: 0.4,
-        limit: 5,
-      });
-
-      if (matches.length === 0) {
-        return {
-          content: [
-            {
-              type: "text" as const,
-              text: JSON.stringify(
-                {
-                  query: name,
-                  found: false,
-                  message: "No matching entities found. Try discover for conceptual searches.",
-                },
-                null,
-                2
-              ),
-            },
-          ],
-        };
-      }
-
-      // Return best match with alternatives
-      // WHY: Safe to assert - we checked matches.length > 0 above
-      // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
-      const bestMatch = matches[0]!;
-      const alternatives = matches.slice(1);
-
-      return {
-        content: [
-          {
-            type: "text" as const,
-            text: JSON.stringify(
-              {
-                query: name,
-                found: true,
-                confidence: Math.round(bestMatch.score * 100) / 100,
-                bestMatch: formatEntity(bestMatch.entity),
-                alternatives: alternatives.map((m) => ({
-                  name: m.entity.name,
-                  id: m.entity.id,
-                  type: m.entity.entityType,
-                  score: Math.round(m.score * 100) / 100,
-                })),
-              },
-              null,
-              2
-            ),
-          },
-        ],
-      };
-    }
-
-    return formatErrorResponse(new Error("Unexpected state"));
-  } catch (error) {
-    return formatErrorResponse(error);
-  }
+    },
+    TIMEOUTS.SEARCH
+  );
 };
 
 function formatEntityResult(entity: DisneyEntity): {

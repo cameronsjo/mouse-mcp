@@ -58,8 +58,17 @@ export async function saveEntity(entity: DisneyEntity): Promise<void> {
     persistDatabase();
 
     // Emit event for embedding generation (fire-and-forget)
-    const emitter = getEntityEmitter();
-    emitter.emitEvent("entity:saved", { entity, timestamp: now });
+    // WHY fire-and-forget: Entity save should succeed even if embedding generation fails
+    try {
+      const emitter = getEntityEmitter();
+      emitter.emitEvent("entity:saved", { entity, timestamp: now });
+    } catch (error) {
+      // Log but don't throw - embedding generation is async and shouldn't block entity save
+      logger.error("Failed to emit entity:saved event", error, {
+        entityId: entity.id,
+        entityType: entity.entityType,
+      });
+    }
   });
 }
 
@@ -99,8 +108,16 @@ export async function saveEntities(entities: DisneyEntity[]): Promise<void> {
     logger.debug("Saved entities", { count: entities.length });
 
     // Emit event for batch embedding generation (fire-and-forget)
-    const emitter = getEntityEmitter();
-    emitter.emitEvent("entity:batch-saved", { entities, count: entities.length, timestamp: now });
+    // WHY fire-and-forget: Entity save should succeed even if embedding generation fails
+    try {
+      const emitter = getEntityEmitter();
+      emitter.emitEvent("entity:batch-saved", { entities, count: entities.length, timestamp: now });
+    } catch (error) {
+      // Log but don't throw - embedding generation is async and shouldn't block entity save
+      logger.error("Failed to emit entity:batch-saved event", error, {
+        entityCount: entities.length,
+      });
+    }
   });
 }
 
@@ -362,10 +379,19 @@ export async function deleteEntitiesForDestination(destinationId: DestinationId)
 
   logger.info("Deleted entities for destination", { destinationId, count });
 
-  // Emit event for cleanup of embeddings
+  // Emit event for cleanup of embeddings (fire-and-forget)
+  // WHY fire-and-forget: Entity deletion should succeed even if embedding cleanup fails
   if (count > 0) {
-    const emitter = getEntityEmitter();
-    emitter.emitEvent("entity:deleted", { destinationId, count, timestamp: now });
+    try {
+      const emitter = getEntityEmitter();
+      emitter.emitEvent("entity:deleted", { destinationId, count, timestamp: now });
+    } catch (error) {
+      // Log but don't throw - embedding cleanup is async and shouldn't block entity deletion
+      logger.error("Failed to emit entity:deleted event", error, {
+        destinationId,
+        deletedCount: count,
+      });
+    }
   }
 
   return count;
