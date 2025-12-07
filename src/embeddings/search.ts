@@ -14,7 +14,7 @@ import {
   type EmbeddingRecord,
 } from "../vectordb/index.js";
 import { getEntityById } from "../db/entities.js";
-import { buildEmbeddingText, hashEmbeddingText } from "./text-builder.js";
+import { buildEmbeddingText, hashEmbeddingText, formatQueryText } from "./text-builder.js";
 import { createLogger } from "../shared/logger.js";
 
 const logger = createLogger("SemanticSearch");
@@ -57,8 +57,9 @@ export async function semanticSearch<T extends DisneyEntity>(
   // Get embedding provider
   const provider = await getEmbeddingProvider();
 
-  // Generate query embedding
-  const queryResult = await provider.embed(query);
+  // Generate query embedding with E5-style prefix for asymmetric search
+  const formattedQuery = formatQueryText(query);
+  const queryResult = await provider.embed(formattedQuery);
   const queryVector = queryResult.embedding;
 
   // Search LanceDB with filters

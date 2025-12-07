@@ -6,6 +6,7 @@
  */
 
 import { getDatabase, persistDatabase } from "./database.js";
+import { detectChanges, recordChange } from "./history.js";
 import { createLogger } from "../shared/logger.js";
 import { fuzzySearch } from "../shared/fuzzy-match.js";
 import { getEntityEmitter } from "../events/entity-events.js";
@@ -25,10 +26,24 @@ const logger = createLogger("Entities");
 /**
  * Save an entity (insert or update).
  * Emits 'entity:saved' event to trigger async embedding generation.
+ * Tracks changes for history if entity already exists.
  */
 export async function saveEntity(entity: DisneyEntity): Promise<void> {
   const db = await getDatabase();
   const now = new Date().toISOString();
+
+  // Check if entity exists and detect changes
+  const existing = await getEntityById<DisneyEntity>(entity.id);
+  const changedFields = detectChanges(existing ?? null, entity);
+
+  // Record change in history (async, fire-and-forget)
+  if (existing) {
+    if (changedFields.length > 0) {
+      void recordChange(entity.id, "updated", existing, entity, changedFields);
+    }
+  } else {
+    void recordChange(entity.id, "created", null, entity, ["*"]);
+  }
 
   db.run(
     `INSERT OR REPLACE INTO entities
@@ -57,12 +72,58 @@ export async function saveEntity(entity: DisneyEntity): Promise<void> {
 /**
  * Save multiple entities in a batch.
  * Emits 'entity:batch-saved' event to trigger async batch embedding generation.
+ * Tracks changes for history for all entities.
  */
 export async function saveEntities(entities: DisneyEntity[]): Promise<void> {
   const db = await getDatabase();
   const now = new Date().toISOString();
 
+  // Batch fetch existing entities for change detection
+  const existingMap = new Map<string, DisneyEntity>();
+  const ids = entities.map((e) => e.id);
+
+  if (ids.length > 0) {
+    const placeholders = ids.map(() => "?").join(",");
+    const result = db.exec(
+      `SELECT id, data FROM entities WHERE id IN (${placeholders})`,
+      ids
+    );
+
+    const firstResult = result[0];
+    if (firstResult) {
+      for (const row of firstResult.values) {
+        if (row) {
+          try {
+            const id = String(row[0]);
+            const data = JSON.parse(String(row[1])) as DisneyEntity;
+            existingMap.set(id, data);
+          } catch {
+            // Skip malformed entries
+          }
+        }
+      }
+    }
+  }
+
+  // Track changes and save entities
+  let createdCount = 0;
+  let updatedCount = 0;
+
   for (const entity of entities) {
+    const existing = existingMap.get(entity.id);
+    const changedFields = detectChanges(existing ?? null, entity);
+
+    // Record change in history (async, fire-and-forget)
+    if (existing) {
+      if (changedFields.length > 0) {
+        void recordChange(entity.id, "updated", existing, entity, changedFields);
+        updatedCount++;
+      }
+    } else {
+      void recordChange(entity.id, "created", null, entity, ["*"]);
+      createdCount++;
+    }
+
     db.run(
       `INSERT OR REPLACE INTO entities
        (id, name, slug, entity_type, destination_id, park_id, park_name, data, updated_at)
@@ -82,7 +143,11 @@ export async function saveEntities(entities: DisneyEntity[]): Promise<void> {
   }
 
   persistDatabase();
-  logger.debug("Saved entities", { count: entities.length });
+  logger.debug("Saved entities", {
+    count: entities.length,
+    created: createdCount,
+    updated: updatedCount,
+  });
 
   // Emit event for batch embedding generation (fire-and-forget)
   const emitter = getEntityEmitter();

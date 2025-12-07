@@ -13,6 +13,7 @@ import * as search from "./search.js";
 import * as discover from "./discover.js";
 import * as status from "./status.js";
 import * as sync from "./sync.js";
+import * as changes from "./changes.js";
 
 export type { ToolDefinition, ToolHandler, ToolResult, ToolEntry };
 
@@ -25,6 +26,7 @@ const tools: ToolEntry[] = [
   { definition: discover.definition, handler: discover.handler },
   { definition: status.definition, handler: status.handler },
   { definition: sync.definition, handler: sync.handler },
+  { definition: changes.definition, handler: changes.handler },
 ];
 
 /**

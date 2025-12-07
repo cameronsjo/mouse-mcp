@@ -47,4 +47,19 @@ export {
   getEntityCounts,
 } from "./entities.js";
 
+export {
+  detectChanges,
+  recordChange,
+  getEntityHistory,
+  queryHistory,
+  getRecentChanges,
+  getChangeSummaries,
+  getHistoryStats,
+  purgeOldHistory,
+  type ChangeType,
+  type EntityChange,
+  type EntityChangeSummary,
+  type HistoryQueryOptions,
+} from "./history.js";
+
 // Note: Embeddings now stored in LanceDB (see src/vectordb/)

@@ -65,6 +65,23 @@ CREATE TABLE IF NOT EXISTS embeddings (
 -- Index for embedding model queries
 CREATE INDEX IF NOT EXISTS idx_embeddings_model ON embeddings(embedding_model);
 
+-- Entity history table for change tracking
+CREATE TABLE IF NOT EXISTS entity_history (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  entity_id TEXT NOT NULL,
+  change_type TEXT NOT NULL,
+  old_data TEXT,
+  new_data TEXT,
+  changed_fields TEXT,
+  detected_at TEXT NOT NULL,
+  FOREIGN KEY (entity_id) REFERENCES entities(id) ON DELETE CASCADE
+);
+
+-- Indexes for history queries
+CREATE INDEX IF NOT EXISTS idx_history_entity ON entity_history(entity_id);
+CREATE INDEX IF NOT EXISTS idx_history_type ON entity_history(change_type);
+CREATE INDEX IF NOT EXISTS idx_history_detected ON entity_history(detected_at);
+
 -- Metadata table for schema versioning
 CREATE TABLE IF NOT EXISTS metadata (
   key TEXT PRIMARY KEY,
@@ -72,11 +89,11 @@ CREATE TABLE IF NOT EXISTS metadata (
 );
 
 -- Set schema version
-INSERT OR REPLACE INTO metadata (key, value) VALUES ('schema_version', '2');
+INSERT OR REPLACE INTO metadata (key, value) VALUES ('schema_version', '3');
 `;
 
 /** Current schema version */
-export const SCHEMA_VERSION = 2;
+export const SCHEMA_VERSION = 3;
 
 /** Migration SQL for upgrading from v1 to v2 */
 export const MIGRATION_V1_TO_V2_SQL = `
@@ -96,4 +113,27 @@ CREATE INDEX IF NOT EXISTS idx_embeddings_model ON embeddings(embedding_model);
 
 -- Update schema version
 UPDATE metadata SET value = '2' WHERE key = 'schema_version';
+`;
+
+/** Migration SQL for upgrading from v2 to v3 */
+export const MIGRATION_V2_TO_V3_SQL = `
+-- Entity history table for change tracking
+CREATE TABLE IF NOT EXISTS entity_history (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  entity_id TEXT NOT NULL,
+  change_type TEXT NOT NULL,
+  old_data TEXT,
+  new_data TEXT,
+  changed_fields TEXT,
+  detected_at TEXT NOT NULL,
+  FOREIGN KEY (entity_id) REFERENCES entities(id) ON DELETE CASCADE
+);
+
+-- Indexes for history queries
+CREATE INDEX IF NOT EXISTS idx_history_entity ON entity_history(entity_id);
+CREATE INDEX IF NOT EXISTS idx_history_type ON entity_history(change_type);
+CREATE INDEX IF NOT EXISTS idx_history_detected ON entity_history(detected_at);
+
+-- Update schema version
+UPDATE metadata SET value = '3' WHERE key = 'schema_version';
 `;

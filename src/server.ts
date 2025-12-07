@@ -5,15 +5,25 @@
  */
 
 // Using low-level Server API for fine-grained control over request handling
+import type { Server as HttpServer } from "node:http";
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
-import { CallToolRequestSchema, ListToolsRequestSchema } from "@modelcontextprotocol/sdk/types.js";
+import {
+  CallToolRequestSchema,
+  ListToolsRequestSchema,
+  ListPromptsRequestSchema,
+  GetPromptRequestSchema,
+  type GetPromptResult,
+} from "@modelcontextprotocol/sdk/types.js";
 import { createLogger } from "./shared/index.js";
 import { formatErrorResponse } from "./shared/errors.js";
 import { getToolDefinitions, getTool } from "./tools/index.js";
+import { getPromptDefinitions, generatePrompt } from "./prompts/index.js";
 import { getSessionManager } from "./clients/index.js";
 import { closeDatabase, cachePurgeExpired } from "./db/index.js";
 import { registerEmbeddingHandlers, removeAllEventListeners } from "./events/index.js";
+import { startHttpServer, closeAllTransports } from "./transport/index.js";
+import { getConfig } from "./config/index.js";
 
 const logger = createLogger("Server");
 
@@ -29,6 +39,7 @@ export class DisneyMcpServer {
   // eslint-disable-next-line @typescript-eslint/no-deprecated -- Using low-level Server for fine-grained control
   private readonly server: Server;
   private cleanupEventHandlers?: () => void;
+  private httpServer?: HttpServer;
 
   constructor() {
     // eslint-disable-next-line @typescript-eslint/no-deprecated
@@ -40,6 +51,7 @@ export class DisneyMcpServer {
       {
         capabilities: {
           tools: {},
+          prompts: {},
         },
       }
     );
@@ -83,6 +95,30 @@ export class DisneyMcpServer {
         return formatErrorResponse(error) as { content: Array<{ type: "text"; text: string }> };
       }
     });
+
+    // List prompts handler
+    this.server.setRequestHandler(ListPromptsRequestSchema, async () => {
+      logger.debug("ListPrompts request");
+      return {
+        prompts: getPromptDefinitions(),
+      };
+    });
+
+    // Get prompt handler
+    this.server.setRequestHandler(GetPromptRequestSchema, async (request) => {
+      const { name, arguments: args } = request.params;
+
+      logger.info("Prompt request", { prompt: name });
+
+      const result = generatePrompt(name, args ?? {});
+      if (!result) {
+        logger.warn("Unknown prompt requested", { prompt: name });
+        throw new Error(`Unknown prompt: ${name}`);
+      }
+
+      logger.debug("Prompt generated", { prompt: name });
+      return result as GetPromptResult;
+    });
   }
 
   /**
@@ -124,9 +160,12 @@ export class DisneyMcpServer {
    * Initialize and start the server.
    */
   async run(): Promise<void> {
+    const config = getConfig();
+
     logger.info("Starting Disney Parks MCP server", {
       name: SERVER_NAME,
       version: SERVER_VERSION,
+      transport: config.transport,
     });
 
     // Initialize session manager
@@ -141,11 +180,20 @@ export class DisneyMcpServer {
     this.cleanupEventHandlers = registerEmbeddingHandlers();
     logger.debug("Event handlers registered");
 
-    // Connect to stdio transport
-    const transport = new StdioServerTransport();
-    await this.server.connect(transport);
-
-    logger.info("Disney Parks MCP server running");
+    // Connect to appropriate transport based on configuration
+    if (config.transport === "http") {
+      // HTTP transport for cloud deployment
+      this.httpServer = await startHttpServer(this.server);
+      logger.info("Disney Parks MCP server running on HTTP", {
+        host: config.httpHost,
+        port: config.httpPort,
+      });
+    } else {
+      // stdio transport for local Claude Desktop
+      const transport = new StdioServerTransport();
+      await this.server.connect(transport);
+      logger.info("Disney Parks MCP server running on stdio");
+    }
   }
 
   /**
@@ -163,6 +211,18 @@ export class DisneyMcpServer {
 
       // Remove all event listeners
       removeAllEventListeners();
+
+      // Close HTTP transports if running
+      if (this.httpServer) {
+        await closeAllTransports();
+        await new Promise<void>((resolve, reject) => {
+          this.httpServer!.close((err) => {
+            if (err) reject(err);
+            else resolve();
+          });
+        });
+        logger.debug("HTTP server closed");
+      }
 
       // Shutdown session manager (close browser)
       const sessionManager = getSessionManager();

@@ -53,6 +53,14 @@ export const definition: ToolDefinition = {
           },
         },
       },
+      limit: {
+        type: "number",
+        description: "Maximum number of results to return (default: 50, max: 200)",
+      },
+      offset: {
+        type: "number",
+        description: "Number of results to skip for pagination (default: 0)",
+      },
     },
     required: ["destination"],
   },
@@ -69,6 +77,8 @@ export const handler: ToolHandler = async (args) => {
 
   const parkId = args.parkId as string | undefined;
   const filters = (args.filters as Record<string, unknown>) ?? {};
+  const limit = Math.min(Math.max(1, (args.limit as number) ?? 50), 200);
+  const offset = Math.max(0, (args.offset as number) ?? 0);
 
   try {
     const client = getDisneyFinderClient();
@@ -76,6 +86,13 @@ export const handler: ToolHandler = async (args) => {
 
     // Apply filters
     attractions = applyFilters(attractions, filters);
+
+    // Get total count before pagination
+    const totalCount = attractions.length;
+
+    // Apply pagination
+    const paginatedAttractions = attractions.slice(offset, offset + limit);
+    const hasMore = offset + limit < totalCount;
 
     return {
       content: [
@@ -85,8 +102,14 @@ export const handler: ToolHandler = async (args) => {
             {
               destination,
               parkId: parkId ?? null,
-              count: attractions.length,
-              attractions: attractions.map(formatAttraction),
+              pagination: {
+                total: totalCount,
+                returned: paginatedAttractions.length,
+                offset,
+                limit,
+                hasMore,
+              },
+              attractions: paginatedAttractions.map(formatAttraction),
             },
             null,
             2

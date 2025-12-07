@@ -2,6 +2,7 @@
  * Embedding Text Builder
  *
  * Combines entity fields into optimized text for embedding generation.
+ * Uses E5-style prefixes for query-document asymmetry.
  */
 
 import { createHash } from "node:crypto";
@@ -16,8 +17,22 @@ import type {
 } from "../types/index.js";
 
 /**
- * Build embedding text from an entity.
+ * Document prefix for E5-style query-document asymmetry.
+ * Documents get this prefix when embedded for storage.
+ * This improves retrieval quality for models trained with such prefixes.
+ */
+export const DOCUMENT_PREFIX = "passage: ";
+
+/**
+ * Query prefix for E5-style query-document asymmetry.
+ * Queries get this prefix when embedded for search.
+ */
+export const QUERY_PREFIX = "query: ";
+
+/**
+ * Build embedding text from an entity (for document storage).
  * Combines relevant fields into a semantic representation.
+ * Adds document prefix for E5-style asymmetric search.
  */
 export function buildEmbeddingText(entity: DisneyEntity): string {
   const parts: string[] = [];
@@ -59,7 +74,16 @@ export function buildEmbeddingText(entity: DisneyEntity): string {
       break;
   }
 
-  return parts.filter(Boolean).join(". ");
+  // Add document prefix for E5-style asymmetric search
+  return DOCUMENT_PREFIX + parts.filter(Boolean).join(". ");
+}
+
+/**
+ * Format a query string with E5-style prefix.
+ * Use this when embedding search queries.
+ */
+export function formatQueryText(query: string): string {
+  return QUERY_PREFIX + query;
 }
 
 function formatEntityType(type: string): string {
