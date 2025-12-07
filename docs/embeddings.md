@@ -551,6 +551,59 @@ if (await isEmbeddingStale(entityId, hash)) {
 }
 ```
 
+## E5-Style Query/Document Prefixes
+
+Some embedding models are trained with **asymmetric prefixes** to distinguish between documents (stored content) and queries (search input). This technique was popularized by E5 models and is also used by BGE and GTE models.
+
+### What Are E5 Prefixes?
+
+When enabled, text is prefixed before embedding:
+- **Documents** (stored entities): `"passage: Space Mountain thrill ride..."`
+- **Queries** (search input): `"query: thrill rides for teenagers"`
+
+These prefixes tell the model to embed the text differently:
+- Documents are optimized for being found
+- Queries are optimized for finding relevant documents
+
+### When Do E5 Prefixes Help?
+
+| Model | Uses Prefixes | Notes |
+|-------|---------------|-------|
+| `E5-base-v2`, `E5-large-v2` | ✅ Yes | Trained with prefixes |
+| `BGE-base-en-v1.5`, `BGE-large-en` | ✅ Yes | Trained with prefixes |
+| `GTE-base`, `GTE-large` | ✅ Yes | Trained with prefixes |
+| `all-MiniLM-L6-v2` | ❌ No | Not trained with prefixes |
+| OpenAI `text-embedding-3-*` | ❌ No | Not trained with prefixes |
+
+**Rule of thumb**: If a model's documentation mentions "query:" and "passage:" or "document:" prefixes, enable them. Otherwise, keep them disabled.
+
+### Configuration
+
+Prefixes are controlled by the `MOUSE_MCP_E5_PREFIXES` environment variable:
+
+```bash
+# Disable prefixes (default, works with all-MiniLM-L6-v2 and OpenAI)
+MOUSE_MCP_E5_PREFIXES=false
+
+# Enable prefixes (use with E5, BGE, or GTE models)
+MOUSE_MCP_E5_PREFIXES=true
+```
+
+**Important**: Changing this setting invalidates all existing embeddings. The text hash includes whether prefixes were applied, so embeddings will be regenerated on next sync.
+
+### Why This Matters
+
+Without prefixes on a prefix-trained model, you may see:
+- Lower search quality
+- Queries returning irrelevant results
+- Similar items not clustering correctly
+
+With prefixes on a model that doesn't use them:
+- Slightly reduced quality (the prefix is just noise)
+- Wasted token space on the prefix text
+
+The default setting (`false`) is safe for the built-in `all-MiniLM-L6-v2` model and OpenAI embeddings.
+
 ## Configuration
 
 Environment variables:
@@ -559,3 +612,4 @@ Environment variables:
 |----------|---------|-------------|
 | `MOUSE_MCP_EMBEDDING_PROVIDER` | `auto` | `openai`, `transformers`, or `auto` |
 | `OPENAI_API_KEY` | - | Required for OpenAI provider |
+| `MOUSE_MCP_E5_PREFIXES` | `false` | Enable E5-style query/document prefixes |

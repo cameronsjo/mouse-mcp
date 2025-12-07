@@ -53,13 +53,9 @@ export const definition: ToolDefinition = {
           },
         },
       },
-      limit: {
+      maxResults: {
         type: "number",
         description: "Maximum number of results to return (default: 50, max: 200)",
-      },
-      offset: {
-        type: "number",
-        description: "Number of results to skip for pagination (default: 0)",
       },
     },
     required: ["destination"],
@@ -77,8 +73,7 @@ export const handler: ToolHandler = async (args) => {
 
   const parkId = args.parkId as string | undefined;
   const filters = (args.filters as Record<string, unknown>) ?? {};
-  const limit = Math.min(Math.max(1, (args.limit as number) ?? 50), 200);
-  const offset = Math.max(0, (args.offset as number) ?? 0);
+  const maxResults = Math.min(Math.max(1, (args.maxResults as number) ?? 50), 200);
 
   try {
     const client = getDisneyFinderClient();
@@ -87,12 +82,11 @@ export const handler: ToolHandler = async (args) => {
     // Apply filters
     attractions = applyFilters(attractions, filters);
 
-    // Get total count before pagination
+    // Get total count before limiting
     const totalCount = attractions.length;
 
-    // Apply pagination
-    const paginatedAttractions = attractions.slice(offset, offset + limit);
-    const hasMore = offset + limit < totalCount;
+    // Apply max results limit
+    const limitedAttractions = attractions.slice(0, maxResults);
 
     return {
       content: [
@@ -102,14 +96,9 @@ export const handler: ToolHandler = async (args) => {
             {
               destination,
               parkId: parkId ?? null,
-              pagination: {
-                total: totalCount,
-                returned: paginatedAttractions.length,
-                offset,
-                limit,
-                hasMore,
-              },
-              attractions: paginatedAttractions.map(formatAttraction),
+              total: totalCount,
+              returned: limitedAttractions.length,
+              attractions: limitedAttractions.map(formatAttraction),
             },
             null,
             2

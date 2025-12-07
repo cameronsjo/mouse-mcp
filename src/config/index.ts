@@ -32,6 +32,14 @@ export interface Config {
   readonly httpPort: number;
   /** HTTP server host (only used when transport=http) */
   readonly httpHost: string;
+  /**
+   * Use E5-style query/document prefixes for embeddings.
+   * When true, documents are prefixed with "passage: " and queries with "query: ".
+   * This improves search quality for models trained with asymmetric prefixes
+   * (E5, BGE, GTE). Disable for models that don't use them (all-MiniLM, OpenAI).
+   * Default: auto-detected based on embedding provider.
+   */
+  readonly useE5Prefixes: boolean;
 }
 
 let cachedConfig: Config | null = null;
@@ -66,6 +74,8 @@ export function getConfig(): Config {
     transport: parseTransportMode(process.env.MOUSE_MCP_TRANSPORT),
     httpPort: parseInt(process.env.MOUSE_MCP_PORT ?? "3000", 10),
     httpHost: process.env.MOUSE_MCP_HOST ?? "127.0.0.1",
+    // E5 prefixes: default to false since all-MiniLM-L6-v2 doesn't use them
+    useE5Prefixes: parseE5Prefixes(process.env.MOUSE_MCP_E5_PREFIXES),
   };
 
   return cachedConfig;
@@ -111,6 +121,17 @@ function parseTransportMode(value: string | undefined): TransportMode {
     return "http";
   }
   return "stdio"; // Default for backwards compatibility
+}
+
+/**
+ * Parse E5 prefix setting from environment.
+ * Default is false because all-MiniLM-L6-v2 (the default model) doesn't use E5 prefixes.
+ */
+function parseE5Prefixes(value: string | undefined): boolean {
+  if (value?.toLowerCase() === "true") {
+    return true;
+  }
+  return false;
 }
 
 /**

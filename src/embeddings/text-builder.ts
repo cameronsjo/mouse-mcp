@@ -2,7 +2,7 @@
  * Embedding Text Builder
  *
  * Combines entity fields into optimized text for embedding generation.
- * Uses E5-style prefixes for query-document asymmetry.
+ * Optionally uses E5-style prefixes for query-document asymmetry (configurable).
  */
 
 import { createHash } from "node:crypto";
@@ -15,6 +15,7 @@ import type {
   DisneyEvent,
   DisneyHotel,
 } from "../types/index.js";
+import { getConfig } from "../config/index.js";
 
 /**
  * Document prefix for E5-style query-document asymmetry.
@@ -32,7 +33,7 @@ export const QUERY_PREFIX = "query: ";
 /**
  * Build embedding text from an entity (for document storage).
  * Combines relevant fields into a semantic representation.
- * Adds document prefix for E5-style asymmetric search.
+ * Optionally adds document prefix for E5-style asymmetric search (when enabled in config).
  */
 export function buildEmbeddingText(entity: DisneyEntity): string {
   const parts: string[] = [];
@@ -74,16 +75,21 @@ export function buildEmbeddingText(entity: DisneyEntity): string {
       break;
   }
 
-  // Add document prefix for E5-style asymmetric search
-  return DOCUMENT_PREFIX + parts.filter(Boolean).join(". ");
+  const text = parts.filter(Boolean).join(". ");
+
+  // Optionally add E5-style document prefix (for models trained with asymmetric prefixes)
+  const config = getConfig();
+  return config.useE5Prefixes ? DOCUMENT_PREFIX + text : text;
 }
 
 /**
- * Format a query string with E5-style prefix.
+ * Format a query string with optional E5-style prefix.
  * Use this when embedding search queries.
+ * Prefix is only added when useE5Prefixes is enabled in config.
  */
 export function formatQueryText(query: string): string {
-  return QUERY_PREFIX + query;
+  const config = getConfig();
+  return config.useE5Prefixes ? QUERY_PREFIX + query : query;
 }
 
 function formatEntityType(type: string): string {
