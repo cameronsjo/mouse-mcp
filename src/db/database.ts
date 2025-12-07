@@ -11,6 +11,7 @@ import { getConfig } from "../config/index.js";
 import { createLogger } from "../shared/logger.js";
 import { DatabaseError } from "../shared/errors.js";
 import { SCHEMA_SQL, SCHEMA_VERSION } from "./schema.js";
+import { withSpan, SpanAttributes, SpanOperations } from "../shared/index.js";
 
 const logger = createLogger("Database");
 
@@ -31,56 +32,67 @@ export async function getDatabase(): Promise<SqlJsDatabase> {
  * Creates the database file and schema if needed.
  */
 async function initializeDatabase(): Promise<SqlJsDatabase> {
-  const config = getConfig();
-  dbPath = config.dbPath;
+  return withSpan("db.initialize", SpanOperations.DB_QUERY, async (span) => {
+    const config = getConfig();
+    dbPath = config.dbPath;
 
-  logger.info("Initializing database", { path: dbPath });
+    span?.setAttribute(SpanAttributes.DB_SYSTEM, "sqlite");
+    span?.setAttribute(SpanAttributes.DB_NAME, dbPath);
 
-  // Ensure directory exists
-  const dir = dirname(dbPath);
-  if (!existsSync(dir)) {
-    mkdirSync(dir, { recursive: true });
-    logger.debug("Created database directory", { dir });
-  }
+    logger.info("Initializing database", { path: dbPath });
 
-  try {
-    // Initialize sql.js
-    const SQL = await initSqlJs();
+    // Ensure directory exists
+    const dir = dirname(dbPath);
+    if (!existsSync(dir)) {
+      mkdirSync(dir, { recursive: true });
+      logger.debug("Created database directory", { dir });
+    }
 
-    let database: SqlJsDatabase;
+    try {
+      // Initialize sql.js
+      const SQL = await initSqlJs();
 
-    // Load existing database or create new one
-    if (existsSync(dbPath)) {
-      try {
-        const fileBuffer = readFileSync(dbPath);
-        database = new SQL.Database(fileBuffer);
-        logger.debug("Loaded existing database");
-      } catch (error) {
-        logger.warn("Failed to load database, creating new one", { error });
+      let database: SqlJsDatabase;
+
+      // Load existing database or create new one
+      if (existsSync(dbPath)) {
+        try {
+          const fileBuffer = readFileSync(dbPath);
+          database = new SQL.Database(fileBuffer);
+          span?.setAttribute("db.loaded_existing", true);
+          logger.debug("Loaded existing database");
+        } catch (error) {
+          logger.warn("Failed to load database, creating new one", { error });
+          database = new SQL.Database();
+          span?.setAttribute("db.loaded_existing", false);
+        }
+      } else {
         database = new SQL.Database();
+        span?.setAttribute("db.loaded_existing", false);
+        logger.debug("Created new database");
       }
-    } else {
-      database = new SQL.Database();
-      logger.debug("Created new database");
+
+      // Check schema version
+      const needsInit = checkSchemaVersion(database);
+
+      span?.setAttribute("db.schema_version", SCHEMA_VERSION);
+      span?.setAttribute("db.needs_init", needsInit);
+
+      if (needsInit) {
+        logger.info("Creating database schema", { version: SCHEMA_VERSION });
+        database.run(SCHEMA_SQL);
+        saveDatabase(database);
+      }
+
+      logger.info("Database initialized successfully");
+      return database;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      throw new DatabaseError(`Failed to initialize database: ${message}`, {
+        path: dbPath,
+      });
     }
-
-    // Check schema version
-    const needsInit = checkSchemaVersion(database);
-
-    if (needsInit) {
-      logger.info("Creating database schema", { version: SCHEMA_VERSION });
-      database.run(SCHEMA_SQL);
-      saveDatabase(database);
-    }
-
-    logger.info("Database initialized successfully");
-    return database;
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    throw new DatabaseError(`Failed to initialize database: ${message}`, {
-      path: dbPath,
-    });
-  }
+  });
 }
 
 /**
@@ -177,25 +189,35 @@ export interface DatabaseStats {
 }
 
 export async function getDatabaseStats(): Promise<DatabaseStats> {
-  const database = await getDatabase();
+  return withSpan("db.stats", SpanOperations.DB_QUERY, async (span) => {
+    span?.setAttribute(SpanAttributes.DB_SYSTEM, "sqlite");
+    span?.setAttribute(SpanAttributes.DB_OPERATION, "SELECT");
 
-  const cacheResult = database.exec("SELECT COUNT(*) as count FROM cache");
-  const cacheCount = (cacheResult[0]?.values[0]?.[0] as number) ?? 0;
+    const database = await getDatabase();
 
-  const entityResult = database.exec("SELECT COUNT(*) as count FROM entities");
-  const entityCount = (entityResult[0]?.values[0]?.[0] as number) ?? 0;
+    const cacheResult = database.exec("SELECT COUNT(*) as count FROM cache");
+    const cacheCount = (cacheResult[0]?.values[0]?.[0] as number) ?? 0;
 
-  const sessionResult = database.exec("SELECT COUNT(*) as count FROM sessions");
-  const sessionCount = (sessionResult[0]?.values[0]?.[0] as number) ?? 0;
+    const entityResult = database.exec("SELECT COUNT(*) as count FROM entities");
+    const entityCount = (entityResult[0]?.values[0]?.[0] as number) ?? 0;
 
-  // Approximate size from exported buffer
-  const exportedData = database.export();
-  const dbSizeBytes = exportedData.length;
+    const sessionResult = database.exec("SELECT COUNT(*) as count FROM sessions");
+    const sessionCount = (sessionResult[0]?.values[0]?.[0] as number) ?? 0;
 
-  return {
-    cacheEntries: cacheCount,
-    entityCount,
-    sessionCount,
-    dbSizeBytes,
-  };
+    // Approximate size from exported buffer
+    const exportedData = database.export();
+    const dbSizeBytes = exportedData.length;
+
+    span?.setAttribute("db.cache_entries", cacheCount);
+    span?.setAttribute("db.entity_count", entityCount);
+    span?.setAttribute("db.session_count", sessionCount);
+    span?.setAttribute("db.size_bytes", dbSizeBytes);
+
+    return {
+      cacheEntries: cacheCount,
+      entityCount,
+      sessionCount,
+      dbSizeBytes,
+    };
+  });
 }

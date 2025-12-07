@@ -5,7 +5,13 @@
  * Requires valid Disney session - no fallback to third-party sources.
  */
 
-import { createLogger, withRetry } from "../shared/index.js";
+import {
+  createLogger,
+  withRetry,
+  withSpan,
+  SpanAttributes,
+  SpanOperations,
+} from "../shared/index.js";
 import { ApiError } from "../shared/errors.js";
 import { getConfig } from "../config/index.js";
 import { getSessionManager } from "./session-manager.js";
@@ -113,29 +119,51 @@ export class DisneyFinderClient {
     parkId?: string,
     options?: { skipCache?: boolean }
   ): Promise<DisneyAttraction[]> {
-    const cacheKey = parkId
-      ? `attractions:${destinationId}:${parkId}`
-      : `attractions:${destinationId}`;
+    return withSpan(
+      `disney.attractions.${destinationId}${parkId ? `.${parkId}` : ""}`,
+      SpanOperations.DISNEY_API_REQUEST,
+      async (span) => {
+        span?.setAttribute(SpanAttributes.DISNEY_DESTINATION, destinationId);
+        span?.setAttribute(SpanAttributes.DISNEY_ENTITY_TYPE, "attraction");
+        if (parkId) {
+          span?.setAttribute(SpanAttributes.DISNEY_PARK, parkId);
+        }
 
-    // Check cache first (unless skipCache is set)
-    if (!options?.skipCache) {
-      const cached = await cacheGet<DisneyAttraction[]>(cacheKey);
-      if (cached) {
-        logger.debug("Returning cached attractions", { destinationId, parkId });
-        return cached.data;
+        const cacheKey = parkId
+          ? `attractions:${destinationId}:${parkId}`
+          : `attractions:${destinationId}`;
+
+        // Check cache first (unless skipCache is set)
+        if (!options?.skipCache) {
+          const cached = await cacheGet<DisneyAttraction[]>(cacheKey);
+          if (cached) {
+            logger.debug("Returning cached attractions", { destinationId, parkId });
+            span?.setAttribute("cache.hit", true);
+            span?.setAttribute("cache.key", cacheKey);
+            return cached.data;
+          }
+          span?.setAttribute("cache.hit", false);
+        } else {
+          logger.debug("Skipping cache for attractions", { destinationId, parkId });
+          span?.setAttribute("cache.skipped", true);
+        }
+
+        // Fetch from Disney API (no fallback - require authentic Disney data)
+        const attractions = await this.fetchAttractionsFromDisney(destinationId, parkId);
+
+        // Cache and persist
+        await cacheSet(cacheKey, attractions, { ttlHours: 24, source: "disney" });
+        await saveEntities(attractions);
+
+        span?.setAttribute("result.count", attractions.length);
+        return attractions;
+      },
+      {
+        [SpanAttributes.DISNEY_DESTINATION]: destinationId,
+        [SpanAttributes.DISNEY_ENTITY_TYPE]: "attraction",
+        ...(parkId ? { [SpanAttributes.DISNEY_PARK]: parkId } : {}),
       }
-    } else {
-      logger.debug("Skipping cache for attractions", { destinationId, parkId });
-    }
-
-    // Fetch from Disney API (no fallback - require authentic Disney data)
-    const attractions = await this.fetchAttractionsFromDisney(destinationId, parkId);
-
-    // Cache and persist
-    await cacheSet(cacheKey, attractions, { ttlHours: 24, source: "disney" });
-    await saveEntities(attractions);
-
-    return attractions;
+    );
   }
 
   /**
@@ -147,27 +175,49 @@ export class DisneyFinderClient {
     parkId?: string,
     options?: { skipCache?: boolean }
   ): Promise<DisneyDining[]> {
-    const cacheKey = parkId ? `dining:${destinationId}:${parkId}` : `dining:${destinationId}`;
+    return withSpan(
+      `disney.dining.${destinationId}${parkId ? `.${parkId}` : ""}`,
+      SpanOperations.DISNEY_API_REQUEST,
+      async (span) => {
+        span?.setAttribute(SpanAttributes.DISNEY_DESTINATION, destinationId);
+        span?.setAttribute(SpanAttributes.DISNEY_ENTITY_TYPE, "dining");
+        if (parkId) {
+          span?.setAttribute(SpanAttributes.DISNEY_PARK, parkId);
+        }
 
-    // Check cache first (unless skipCache is set)
-    if (!options?.skipCache) {
-      const cached = await cacheGet<DisneyDining[]>(cacheKey);
-      if (cached) {
-        logger.debug("Returning cached dining", { destinationId, parkId });
-        return cached.data;
+        const cacheKey = parkId ? `dining:${destinationId}:${parkId}` : `dining:${destinationId}`;
+
+        // Check cache first (unless skipCache is set)
+        if (!options?.skipCache) {
+          const cached = await cacheGet<DisneyDining[]>(cacheKey);
+          if (cached) {
+            logger.debug("Returning cached dining", { destinationId, parkId });
+            span?.setAttribute("cache.hit", true);
+            span?.setAttribute("cache.key", cacheKey);
+            return cached.data;
+          }
+          span?.setAttribute("cache.hit", false);
+        } else {
+          logger.debug("Skipping cache for dining", { destinationId, parkId });
+          span?.setAttribute("cache.skipped", true);
+        }
+
+        // Fetch from Disney API (no fallback - require authentic Disney data)
+        const dining = await this.fetchDiningFromDisney(destinationId, parkId);
+
+        // Cache and persist
+        await cacheSet(cacheKey, dining, { ttlHours: 24, source: "disney" });
+        await saveEntities(dining);
+
+        span?.setAttribute("result.count", dining.length);
+        return dining;
+      },
+      {
+        [SpanAttributes.DISNEY_DESTINATION]: destinationId,
+        [SpanAttributes.DISNEY_ENTITY_TYPE]: "dining",
+        ...(parkId ? { [SpanAttributes.DISNEY_PARK]: parkId } : {}),
       }
-    } else {
-      logger.debug("Skipping cache for dining", { destinationId, parkId });
-    }
-
-    // Fetch from Disney API (no fallback - require authentic Disney data)
-    const dining = await this.fetchDiningFromDisney(destinationId, parkId);
-
-    // Cache and persist
-    await cacheSet(cacheKey, dining, { ttlHours: 24, source: "disney" });
-    await saveEntities(dining);
-
-    return dining;
+    );
   }
 
   /**
@@ -179,27 +229,49 @@ export class DisneyFinderClient {
     parkId?: string,
     options?: { skipCache?: boolean }
   ): Promise<DisneyShow[]> {
-    const cacheKey = parkId ? `shows:${destinationId}:${parkId}` : `shows:${destinationId}`;
+    return withSpan(
+      `disney.shows.${destinationId}${parkId ? `.${parkId}` : ""}`,
+      SpanOperations.DISNEY_API_REQUEST,
+      async (span) => {
+        span?.setAttribute(SpanAttributes.DISNEY_DESTINATION, destinationId);
+        span?.setAttribute(SpanAttributes.DISNEY_ENTITY_TYPE, "show");
+        if (parkId) {
+          span?.setAttribute(SpanAttributes.DISNEY_PARK, parkId);
+        }
 
-    // Check cache first (unless skipCache is set)
-    if (!options?.skipCache) {
-      const cached = await cacheGet<DisneyShow[]>(cacheKey);
-      if (cached) {
-        logger.debug("Returning cached shows", { destinationId, parkId });
-        return cached.data;
+        const cacheKey = parkId ? `shows:${destinationId}:${parkId}` : `shows:${destinationId}`;
+
+        // Check cache first (unless skipCache is set)
+        if (!options?.skipCache) {
+          const cached = await cacheGet<DisneyShow[]>(cacheKey);
+          if (cached) {
+            logger.debug("Returning cached shows", { destinationId, parkId });
+            span?.setAttribute("cache.hit", true);
+            span?.setAttribute("cache.key", cacheKey);
+            return cached.data;
+          }
+          span?.setAttribute("cache.hit", false);
+        } else {
+          logger.debug("Skipping cache for shows", { destinationId, parkId });
+          span?.setAttribute("cache.skipped", true);
+        }
+
+        // Fetch from Disney API (no fallback - require authentic Disney data)
+        const shows = await this.fetchEntertainmentFromDisney(destinationId, parkId);
+
+        // Cache and persist
+        await cacheSet(cacheKey, shows, { ttlHours: 24, source: "disney" });
+        await saveEntities(shows);
+
+        span?.setAttribute("result.count", shows.length);
+        return shows;
+      },
+      {
+        [SpanAttributes.DISNEY_DESTINATION]: destinationId,
+        [SpanAttributes.DISNEY_ENTITY_TYPE]: "show",
+        ...(parkId ? { [SpanAttributes.DISNEY_PARK]: parkId } : {}),
       }
-    } else {
-      logger.debug("Skipping cache for shows", { destinationId, parkId });
-    }
-
-    // Fetch from Disney API (no fallback - require authentic Disney data)
-    const shows = await this.fetchEntertainmentFromDisney(destinationId, parkId);
-
-    // Cache and persist
-    await cacheSet(cacheKey, shows, { ttlHours: 24, source: "disney" });
-    await saveEntities(shows);
-
-    return shows;
+    );
   }
 
   /**
@@ -211,36 +283,63 @@ export class DisneyFinderClient {
     parkId?: string,
     options?: { skipCache?: boolean }
   ): Promise<DisneyShop[]> {
-    const cacheKey = parkId ? `shops:${destinationId}:${parkId}` : `shops:${destinationId}`;
+    return withSpan(
+      `disney.shops.${destinationId}${parkId ? `.${parkId}` : ""}`,
+      SpanOperations.DISNEY_API_REQUEST,
+      async (span) => {
+        span?.setAttribute(SpanAttributes.DISNEY_DESTINATION, destinationId);
+        span?.setAttribute(SpanAttributes.DISNEY_ENTITY_TYPE, "shop");
+        if (parkId) {
+          span?.setAttribute(SpanAttributes.DISNEY_PARK, parkId);
+        }
 
-    // Check cache first (unless skipCache is set)
-    if (!options?.skipCache) {
-      const cached = await cacheGet<DisneyShop[]>(cacheKey);
-      if (cached) {
-        logger.debug("Returning cached shops", { destinationId, parkId });
-        return cached.data;
+        const cacheKey = parkId ? `shops:${destinationId}:${parkId}` : `shops:${destinationId}`;
+
+        // Check cache first (unless skipCache is set)
+        if (!options?.skipCache) {
+          const cached = await cacheGet<DisneyShop[]>(cacheKey);
+          if (cached) {
+            logger.debug("Returning cached shops", { destinationId, parkId });
+            span?.setAttribute("cache.hit", true);
+            span?.setAttribute("cache.key", cacheKey);
+            return cached.data;
+          }
+          span?.setAttribute("cache.hit", false);
+        } else {
+          logger.debug("Skipping cache for shops", { destinationId, parkId });
+          span?.setAttribute("cache.skipped", true);
+        }
+
+        // Try Disney API
+        try {
+          const shops = await this.fetchShopsFromDisney(destinationId, parkId);
+
+          // Cache and persist
+          await cacheSet(cacheKey, shops, { ttlHours: 24, source: "disney" });
+          await saveEntities(shops);
+
+          span?.setAttribute("result.count", shops.length);
+          return shops;
+        } catch (error) {
+          logger.warn("Disney API failed for shops", {
+            destinationId,
+            error: error instanceof Error ? error.message : String(error),
+          });
+          span?.setAttribute("error", true);
+          span?.setAttribute(
+            "error.message",
+            error instanceof Error ? error.message : String(error)
+          );
+          // No ThemeParks.wiki fallback for shops
+          return [];
+        }
+      },
+      {
+        [SpanAttributes.DISNEY_DESTINATION]: destinationId,
+        [SpanAttributes.DISNEY_ENTITY_TYPE]: "shop",
+        ...(parkId ? { [SpanAttributes.DISNEY_PARK]: parkId } : {}),
       }
-    } else {
-      logger.debug("Skipping cache for shops", { destinationId, parkId });
-    }
-
-    // Try Disney API
-    try {
-      const shops = await this.fetchShopsFromDisney(destinationId, parkId);
-
-      // Cache and persist
-      await cacheSet(cacheKey, shops, { ttlHours: 24, source: "disney" });
-      await saveEntities(shops);
-
-      return shops;
-    } catch (error) {
-      logger.warn("Disney API failed for shops", {
-        destinationId,
-        error: error instanceof Error ? error.message : String(error),
-      });
-      // No ThemeParks.wiki fallback for shops
-      return [];
-    }
+    );
   }
 
   /**
@@ -252,36 +351,63 @@ export class DisneyFinderClient {
     parkId?: string,
     options?: { skipCache?: boolean }
   ): Promise<DisneyEvent[]> {
-    const cacheKey = parkId ? `events:${destinationId}:${parkId}` : `events:${destinationId}`;
+    return withSpan(
+      `disney.events.${destinationId}${parkId ? `.${parkId}` : ""}`,
+      SpanOperations.DISNEY_API_REQUEST,
+      async (span) => {
+        span?.setAttribute(SpanAttributes.DISNEY_DESTINATION, destinationId);
+        span?.setAttribute(SpanAttributes.DISNEY_ENTITY_TYPE, "event");
+        if (parkId) {
+          span?.setAttribute(SpanAttributes.DISNEY_PARK, parkId);
+        }
 
-    // Check cache first (unless skipCache is set)
-    if (!options?.skipCache) {
-      const cached = await cacheGet<DisneyEvent[]>(cacheKey);
-      if (cached) {
-        logger.debug("Returning cached events", { destinationId, parkId });
-        return cached.data;
+        const cacheKey = parkId ? `events:${destinationId}:${parkId}` : `events:${destinationId}`;
+
+        // Check cache first (unless skipCache is set)
+        if (!options?.skipCache) {
+          const cached = await cacheGet<DisneyEvent[]>(cacheKey);
+          if (cached) {
+            logger.debug("Returning cached events", { destinationId, parkId });
+            span?.setAttribute("cache.hit", true);
+            span?.setAttribute("cache.key", cacheKey);
+            return cached.data;
+          }
+          span?.setAttribute("cache.hit", false);
+        } else {
+          logger.debug("Skipping cache for events", { destinationId, parkId });
+          span?.setAttribute("cache.skipped", true);
+        }
+
+        // Try Disney API
+        try {
+          const events = await this.fetchEventsFromDisney(destinationId, parkId);
+
+          // Cache and persist
+          await cacheSet(cacheKey, events, { ttlHours: 24, source: "disney" });
+          await saveEntities(events);
+
+          span?.setAttribute("result.count", events.length);
+          return events;
+        } catch (error) {
+          logger.warn("Disney API failed for events", {
+            destinationId,
+            error: error instanceof Error ? error.message : String(error),
+          });
+          span?.setAttribute("error", true);
+          span?.setAttribute(
+            "error.message",
+            error instanceof Error ? error.message : String(error)
+          );
+          // No ThemeParks.wiki fallback for events
+          return [];
+        }
+      },
+      {
+        [SpanAttributes.DISNEY_DESTINATION]: destinationId,
+        [SpanAttributes.DISNEY_ENTITY_TYPE]: "event",
+        ...(parkId ? { [SpanAttributes.DISNEY_PARK]: parkId } : {}),
       }
-    } else {
-      logger.debug("Skipping cache for events", { destinationId, parkId });
-    }
-
-    // Try Disney API
-    try {
-      const events = await this.fetchEventsFromDisney(destinationId, parkId);
-
-      // Cache and persist
-      await cacheSet(cacheKey, events, { ttlHours: 24, source: "disney" });
-      await saveEntities(events);
-
-      return events;
-    } catch (error) {
-      logger.warn("Disney API failed for events", {
-        destinationId,
-        error: error instanceof Error ? error.message : String(error),
-      });
-      // No ThemeParks.wiki fallback for events
-      return [];
-    }
+    );
   }
 
   /**
@@ -447,36 +573,56 @@ export class DisneyFinderClient {
   ): Promise<T> {
     const sessionManager = getSessionManager();
 
-    return withRetry(
-      async () => {
-        const controller = new AbortController();
-        const timeout = setTimeout(() => {
-          controller.abort();
-        }, this.timeoutMs);
+    return withSpan(
+      "disney.api.fetch",
+      SpanOperations.HTTP_CLIENT,
+      async (span) => {
+        span?.setAttribute(SpanAttributes.HTTP_METHOD, "GET");
+        span?.setAttribute(SpanAttributes.HTTP_URL, url);
+        span?.setAttribute(SpanAttributes.DISNEY_DESTINATION, destinationId);
 
-        try {
-          const response = await fetch(url, {
-            method: "GET",
-            headers: {
-              ...headers,
-              Accept: "application/json",
-            },
-            signal: controller.signal,
-          });
+        return withRetry(
+          async () => {
+            const controller = new AbortController();
+            const timeout = setTimeout(() => {
+              controller.abort();
+            }, this.timeoutMs);
 
-          if (!response.ok) {
-            await sessionManager.reportError(destinationId, new Error(`HTTP ${response.status}`));
-            throw new ApiError(`Disney API error: ${response.status}`, response.status, url);
+            try {
+              const response = await fetch(url, {
+                method: "GET",
+                headers: {
+                  ...headers,
+                  Accept: "application/json",
+                },
+                signal: controller.signal,
+              });
+
+              span?.setAttribute(SpanAttributes.HTTP_STATUS_CODE, response.status);
+
+              if (!response.ok) {
+                await sessionManager.reportError(
+                  destinationId,
+                  new Error(`HTTP ${response.status}`)
+                );
+                throw new ApiError(`Disney API error: ${response.status}`, response.status, url);
+              }
+
+              await sessionManager.reportSuccess(destinationId);
+              return (await response.json()) as T;
+            } finally {
+              clearTimeout(timeout);
+            }
+          },
+          {
+            nonRetryableStatusCodes: [401, 403], // Don't retry auth failures
           }
-
-          await sessionManager.reportSuccess(destinationId);
-          return (await response.json()) as T;
-        } finally {
-          clearTimeout(timeout);
-        }
+        );
       },
       {
-        nonRetryableStatusCodes: [401, 403], // Don't retry auth failures
+        [SpanAttributes.HTTP_METHOD]: "GET",
+        [SpanAttributes.HTTP_URL]: url,
+        [SpanAttributes.DISNEY_DESTINATION]: destinationId,
       }
     );
   }
