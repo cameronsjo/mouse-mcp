@@ -80,29 +80,71 @@ These improvements are impressive but less relevant for our use case where:
 1. **V8 JavaScript Engine**: Same engine as Chrome, so core JS should work.
 2. **CDP Protocol**: Standard protocol with good compatibility.
 
-## If We Wanted to Proceed
+## Implementation (Experimental)
 
-### Testing Strategy
+We've implemented experimental Lightpanda support as an optional backend:
 
-1. **Create test branch** with Lightpanda integration
-2. **Manual validation**:
+### Browser Backend Abstraction
+
+New files in `src/clients/browser-backends/`:
+- `types.ts` - Backend interface definition
+- `playwright-backend.ts` - Default Playwright implementation
+- `lightpanda-backend.ts` - CDP-based Lightpanda connector
+- `index.ts` - Factory functions
+
+### Configuration
+
+```bash
+# Use Lightpanda (requires running Lightpanda server)
+MOUSE_MCP_BROWSER=lightpanda
+
+# Auto-detect: use Lightpanda if available, else Playwright
+MOUSE_MCP_BROWSER=auto
+
+# Custom CDP endpoint (default: http://127.0.0.1:9222)
+MOUSE_MCP_CDP_ENDPOINT=http://localhost:9222
+```
+
+### Testing Script
+
+Run comparison tests with:
+```bash
+# Start Lightpanda first
+./lightpanda serve --host 127.0.0.1 --port 9222
+
+# Run comparison
+npx tsx scripts/test-lightpanda.ts
+```
+
+The script compares:
+- Browser startup time
+- Navigation performance
+- Cookie extraction success
+- Auth token detection (`__d`, `finderPublicTokenExpireTime`, `SWID`)
+
+### How to Test
+
+1. **Download Lightpanda**:
    ```bash
-   # Start Lightpanda CDP server
-   ./lightpanda serve --host 127.0.0.1 --port 9222
-
-   # Connect via Playwright
-   const browser = await chromium.connectOverCDP('http://127.0.0.1:9222');
+   curl -L -o lightpanda \
+     "https://github.com/lightpanda-io/browser/releases/download/nightly/lightpanda-x86_64-linux"
+   chmod +x lightpanda
    ```
-3. **Test cookie extraction** against both WDW and DLR
-4. **Verify JWT generation** - check if `__d` cookie appears
-5. **Compare session validity** with Playwright-generated sessions
 
-### Migration Path (If Tests Pass)
+2. **Start Lightpanda CDP server**:
+   ```bash
+   ./lightpanda serve --host 127.0.0.1 --port 9222
+   ```
 
-1. Add Lightpanda as optional browser backend
-2. Configure via `MOUSE_MCP_BROWSER=lightpanda` env var
-3. Keep Playwright as default/fallback
-4. Monitor error rates over 2-week trial
+3. **Run comparison test**:
+   ```bash
+   npx tsx scripts/test-lightpanda.ts
+   ```
+
+4. **Enable in production** (if tests pass):
+   ```bash
+   MOUSE_MCP_BROWSER=lightpanda npm start
+   ```
 
 ## Alternatives Considered
 

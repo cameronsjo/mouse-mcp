@@ -1,13 +1,20 @@
 /**
  * Session Manager
  *
- * Handles Disney API authentication via Playwright.
+ * Handles Disney API authentication via browser automation.
+ * Supports multiple browser backends: Playwright (default) or Lightpanda.
  * Manages session lifecycle with daily refresh.
  */
 
-import { chromium, type Browser, type BrowserContext, type Page } from "playwright";
+import { type Browser, type BrowserContext, type Page } from "playwright";
 import { createLogger } from "../shared/index.js";
 import { getConfig } from "../config/index.js";
+import {
+  type BrowserBackend,
+  PlaywrightBackend,
+  LightpandaBackend,
+  createAutoBackend,
+} from "./browser-backends/index.js";
 import {
   loadSession,
   loadAllSessions,
@@ -39,10 +46,15 @@ const DEFAULT_SESSION_HOURS = 8;
 /**
  * Session manager for Disney API authentication.
  *
- * Uses Playwright to establish browser sessions and extract cookies
+ * Uses browser automation to establish sessions and extract cookies
  * needed for API requests. Sessions are persisted and refreshed daily.
+ *
+ * Supports multiple backends:
+ * - Playwright (default): Uses bundled Chromium
+ * - Lightpanda: Connects via CDP for lower resource usage
  */
 export class SessionManager {
+  private backend: BrowserBackend | null = null;
   private browser: Browser | null = null;
   private refreshPromises = new Map<DestinationId, Promise<DisneySession | null>>();
   private initialized = false;
@@ -249,7 +261,11 @@ export class SessionManager {
   async shutdown(): Promise<void> {
     logger.info("Shutting down session manager");
 
-    if (this.browser) {
+    if (this.backend) {
+      await this.backend.close();
+      this.backend = null;
+      this.browser = null;
+    } else if (this.browser) {
       await this.browser.close();
       this.browser = null;
     }
@@ -260,9 +276,24 @@ export class SessionManager {
   private async getBrowser(): Promise<Browser> {
     if (!this.browser) {
       const config = getConfig();
-      this.browser = await chromium.launch({
-        headless: !config.showBrowser,
-      });
+
+      // Create backend based on configuration
+      if (!this.backend) {
+        switch (config.browserBackend) {
+          case "lightpanda":
+            this.backend = new LightpandaBackend(config.cdpEndpoint);
+            break;
+          case "auto":
+            this.backend = await createAutoBackend(config.cdpEndpoint);
+            break;
+          case "playwright":
+          default:
+            this.backend = new PlaywrightBackend();
+        }
+        logger.info("Browser backend selected", { backend: this.backend.name });
+      }
+
+      this.browser = await this.backend.launch();
     }
     return this.browser;
   }

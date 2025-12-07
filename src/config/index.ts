@@ -12,6 +12,8 @@ export type LogLevel = "DEBUG" | "INFO" | "WARN" | "ERROR";
 
 export type EmbeddingProviderType = "openai" | "transformers" | "auto";
 
+export type BrowserBackendType = "playwright" | "lightpanda" | "auto";
+
 export interface Config {
   readonly nodeEnv: "development" | "production" | "test";
   readonly logLevel: LogLevel;
@@ -20,6 +22,10 @@ export interface Config {
   readonly timeoutMs: number;
   /** Show browser window during Playwright sessions (useful for debugging) */
   readonly showBrowser: boolean;
+  /** Browser backend selection */
+  readonly browserBackend: BrowserBackendType;
+  /** CDP endpoint for Lightpanda (default: http://127.0.0.1:9222) */
+  readonly cdpEndpoint: string;
   /** Embedding provider selection */
   readonly embeddingProvider: EmbeddingProviderType;
   /** OpenAI API key for embeddings (optional) */
@@ -51,6 +57,9 @@ export function getConfig(): Config {
     refreshBufferMinutes: parseInt(process.env.MOUSE_MCP_REFRESH_BUFFER ?? "60", 10),
     timeoutMs: parseInt(process.env.MOUSE_MCP_TIMEOUT ?? "30000", 10),
     showBrowser: process.env.MOUSE_MCP_SHOW_BROWSER === "true",
+    // Browser backend configuration
+    browserBackend: parseBrowserBackend(process.env.MOUSE_MCP_BROWSER),
+    cdpEndpoint: process.env.MOUSE_MCP_CDP_ENDPOINT ?? "http://127.0.0.1:9222",
     // Embedding configuration
     embeddingProvider: parseEmbeddingProvider(process.env.MOUSE_MCP_EMBEDDING_PROVIDER),
     openaiApiKey: process.env.OPENAI_API_KEY,
@@ -76,6 +85,19 @@ function parseLogLevel(value: string | undefined, nodeEnv: string): LogLevel {
 
 function isLogLevel(value: string): value is LogLevel {
   return ["DEBUG", "INFO", "WARN", "ERROR"].includes(value);
+}
+
+/**
+ * Parse browser backend from environment.
+ */
+function parseBrowserBackend(value: string | undefined): BrowserBackendType {
+  if (value) {
+    const lower = value.toLowerCase();
+    if (lower === "playwright" || lower === "lightpanda" || lower === "auto") {
+      return lower;
+    }
+  }
+  return "playwright"; // Default to Playwright for stability
 }
 
 /**
