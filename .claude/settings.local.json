@@ -15,7 +15,14 @@
       "WebFetch(domain:auth0.com)",
       "WebFetch(domain:dev.to)",
       "WebFetch(domain:den.dev)",
-      "WebFetch(domain:www.gentoro.com)"
+      "WebFetch(domain:www.gentoro.com)",
+      "Bash(@opentelemetry/api@^1.9.0 )",
+      "Bash(@opentelemetry/sdk-node@^0.208.0 )",
+      "Bash(@opentelemetry/semantic-conventions@^1.28.0 )",
+      "Bash(@opentelemetry/auto-instrumentations-node@^0.67.2 )",
+      "Bash(@opentelemetry/exporter-trace-otlp-http@^0.208.0 )",
+      "Bash(@opentelemetry/resources@^1.30.1 )",
+      "Bash(@sentry/node@^8.47.0)"
     ],
     "deny": [],
     "ask": []

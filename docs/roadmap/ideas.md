@@ -28,9 +28,9 @@ Current SDK: `@modelcontextprotocol/sdk@1.12.0` (needs upgrade for 2025-11-25 fe
 | Item | Priority | Effort | Notes |
 |------|----------|--------|-------|
 | SQL injection fix in LanceDB | p0 | small | Escape string interpolation in queries at lancedb.ts:116, 145, 153, 174, 221-223, 277-278 |
-| Add OpenTelemetry + Sentry | p0 | medium | OTEL tracing with Sentry integration for errors, spans for API/DB/embeddings |
-| Implement PII sanitization | p0 | medium | Sanitize user-generated content before logging, caching, or returning to LLM |
-| Encrypt session tokens at rest | p0 | small | Session cookies/tokens stored as plain text in SQLite - use AES-256-GCM |
+| ~~Add OpenTelemetry + Sentry~~ | ✅ | medium | Added @sentry/node + @opentelemetry/sdk-node with tracing for tools, API calls, embeddings |
+| ~~Implement PII sanitization~~ | ✅ | medium | Created pii-sanitizer.ts with pattern detection, integrated into logger and cache |
+| ~~Encrypt session tokens at rest~~ | ✅ | small | AES-256-GCM encryption in crypto.ts, PBKDF2 key derivation in secrets.ts |
 | Add rate limiting | p1 | medium | Per-tool rate limits to prevent abuse and Disney API bans |
 | Implement JSON schema validation | p1 | small | Runtime validation of tool inputs using ajv or zod |
 | Add request timeouts to tool handlers | p1 | small | Prevent long-running tool calls from blocking MCP connection |

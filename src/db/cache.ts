@@ -6,6 +6,7 @@
 
 import { getDatabase, persistDatabase } from "./database.js";
 import { createLogger } from "../shared/logger.js";
+import { withSpan, SpanAttributes, SpanOperations } from "../shared/index.js";
 
 const logger = createLogger("Cache");
 
@@ -27,39 +28,47 @@ export interface CacheSetOptions {
  * Get a cached value if not expired.
  */
 export async function cacheGet<T>(key: string): Promise<CacheEntry<T> | null> {
-  const db = await getDatabase();
-  const now = new Date().toISOString();
+  return withSpan(`cache.get ${key}`, SpanOperations.CACHE_GET, async (span) => {
+    span?.setAttribute(SpanAttributes.CACHE_KEY, key);
 
-  const result = db.exec(
-    `SELECT data, source, cached_at, expires_at
-     FROM cache
-     WHERE key = ? AND expires_at > ?`,
-    [key, now]
-  );
+    const db = await getDatabase();
+    const now = new Date().toISOString();
 
-  const firstResult = result[0];
-  if (!firstResult || firstResult.values.length === 0) {
-    return null;
-  }
+    const result = db.exec(
+      `SELECT data, source, cached_at, expires_at
+       FROM cache
+       WHERE key = ? AND expires_at > ?`,
+      [key, now]
+    );
 
-  const row = firstResult.values[0];
-  if (!row) {
-    return null;
-  }
+    const firstResult = result[0];
+    if (!firstResult || firstResult.values.length === 0) {
+      span?.setAttribute(SpanAttributes.CACHE_HIT, false);
+      return null;
+    }
 
-  try {
-    logger.debug("Cache hit", { key });
-    return {
-      data: JSON.parse(String(row[0])) as T,
-      source: String(row[1]) as "disney" | "themeparks-wiki",
-      cachedAt: String(row[2]),
-      expiresAt: String(row[3]),
-    };
-  } catch (error) {
-    logger.warn("Failed to parse cached data", { key, error });
-    await cacheDelete(key);
-    return null;
-  }
+    const row = firstResult.values[0];
+    if (!row) {
+      span?.setAttribute(SpanAttributes.CACHE_HIT, false);
+      return null;
+    }
+
+    try {
+      logger.debug("Cache hit", { key });
+      span?.setAttribute(SpanAttributes.CACHE_HIT, true);
+      return {
+        data: JSON.parse(String(row[0])) as T,
+        source: String(row[1]) as "disney" | "themeparks-wiki",
+        cachedAt: String(row[2]),
+        expiresAt: String(row[3]),
+      };
+    } catch (error) {
+      logger.warn("Failed to parse cached data", { key, error });
+      span?.setAttribute(SpanAttributes.CACHE_HIT, false);
+      await cacheDelete(key);
+      return null;
+    }
+  });
 }
 
 /**
@@ -70,60 +79,76 @@ export async function cacheSet(
   data: unknown,
   options: CacheSetOptions = {}
 ): Promise<void> {
-  const db = await getDatabase();
-  const ttlHours = options.ttlHours ?? 24;
-  const source = options.source ?? "themeparks-wiki";
+  return withSpan(`cache.set ${key}`, SpanOperations.CACHE_SET, async (span) => {
+    span?.setAttribute(SpanAttributes.CACHE_KEY, key);
 
-  const now = new Date();
-  const cachedAt = now.toISOString();
-  const expiresAt = new Date(now.getTime() + ttlHours * 60 * 60 * 1000).toISOString();
+    const db = await getDatabase();
+    const ttlHours = options.ttlHours ?? 24;
+    const source = options.source ?? "themeparks-wiki";
 
-  db.run(
-    `INSERT OR REPLACE INTO cache (key, data, source, cached_at, expires_at)
-     VALUES (?, ?, ?, ?, ?)`,
-    [key, JSON.stringify(data), source, cachedAt, expiresAt]
-  );
+    span?.setAttribute("cache.ttl_hours", ttlHours);
 
-  persistDatabase();
-  logger.debug("Cache set", { key, ttlHours, expiresAt });
+    const now = new Date();
+    const cachedAt = now.toISOString();
+    const expiresAt = new Date(now.getTime() + ttlHours * 60 * 60 * 1000).toISOString();
+
+    db.run(
+      `INSERT OR REPLACE INTO cache (key, data, source, cached_at, expires_at)
+       VALUES (?, ?, ?, ?, ?)`,
+      [key, JSON.stringify(data), source, cachedAt, expiresAt]
+    );
+
+    persistDatabase();
+    logger.debug("Cache set", { key, ttlHours, expiresAt });
+  });
 }
 
 /**
  * Delete a cached value.
  */
 export async function cacheDelete(key: string): Promise<boolean> {
-  const db = await getDatabase();
+  return withSpan(`cache.delete ${key}`, SpanOperations.CACHE_DELETE, async (span) => {
+    span?.setAttribute(SpanAttributes.CACHE_KEY, key);
 
-  // Check if exists first
-  const check = db.exec("SELECT 1 FROM cache WHERE key = ?", [key]);
-  const checkResult = check[0];
-  if (!checkResult || checkResult.values.length === 0) {
-    return false;
-  }
+    const db = await getDatabase();
 
-  db.run("DELETE FROM cache WHERE key = ?", [key]);
-  persistDatabase();
-  return true;
+    // Check if exists first
+    const check = db.exec("SELECT 1 FROM cache WHERE key = ?", [key]);
+    const checkResult = check[0];
+    if (!checkResult || checkResult.values.length === 0) {
+      span?.setAttribute("cache.deleted", false);
+      return false;
+    }
+
+    db.run("DELETE FROM cache WHERE key = ?", [key]);
+    persistDatabase();
+    span?.setAttribute("cache.deleted", true);
+    return true;
+  });
 }
 
 /**
  * Clear all expired cache entries.
  */
 export async function cachePurgeExpired(): Promise<number> {
-  const db = await getDatabase();
-  const now = new Date().toISOString();
+  return withSpan("cache.purge-expired", SpanOperations.CACHE_DELETE, async (span) => {
+    const db = await getDatabase();
+    const now = new Date().toISOString();
 
-  // Count before delete
-  const countResult = db.exec("SELECT COUNT(*) FROM cache WHERE expires_at <= ?", [now]);
-  const count = (countResult[0]?.values[0]?.[0] as number) ?? 0;
+    // Count before delete
+    const countResult = db.exec("SELECT COUNT(*) FROM cache WHERE expires_at <= ?", [now]);
+    const count = (countResult[0]?.values[0]?.[0] as number) ?? 0;
 
-  if (count > 0) {
-    db.run("DELETE FROM cache WHERE expires_at <= ?", [now]);
-    persistDatabase();
-    logger.info("Purged expired cache entries", { count });
-  }
+    span?.setAttribute("cache.purged_count", count);
 
-  return count;
+    if (count > 0) {
+      db.run("DELETE FROM cache WHERE expires_at <= ?", [now]);
+      persistDatabase();
+      logger.info("Purged expired cache entries", { count });
+    }
+
+    return count;
+  });
 }
 
 /**

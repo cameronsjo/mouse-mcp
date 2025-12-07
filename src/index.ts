@@ -6,14 +6,22 @@
  *
  * Usage:
  *   npx mouse-mcp
- *   node dist/index.js
+ *   node --import ./dist/instrumentation.js dist/index.js
+ *
+ * For development with tsx:
+ *   tsx --import ./src/instrumentation.ts src/index.ts
  */
 
-// Load environment variables from .env file
+// Load environment variables from .env file FIRST
 import "dotenv/config";
+
+// Import instrumentation (Sentry + OTEL) - must be imported early
+// Note: For best results, use --import flag instead of this import
+import "./instrumentation.js";
 
 import { DisneyMcpServer } from "./server.js";
 import { createLogger } from "./shared/index.js";
+import { Sentry } from "./shared/tracing.js";
 
 const logger = createLogger("Main");
 
@@ -23,6 +31,13 @@ async function main(): Promise<void> {
     await server.run();
   } catch (error) {
     logger.error("Fatal error starting server", error);
+
+    // Capture fatal error in Sentry
+    Sentry.captureException(error);
+
+    // Flush Sentry events before exit
+    await Sentry.close(2000);
+
     process.exit(1);
   }
 }

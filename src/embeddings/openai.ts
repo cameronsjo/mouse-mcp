@@ -6,6 +6,7 @@
 
 import type { EmbeddingProvider, EmbeddingResult, BatchEmbeddingResult } from "./types.js";
 import { createLogger } from "../shared/logger.js";
+import { withSpan, SpanAttributes, SpanOperations } from "../shared/index.js";
 
 const logger = createLogger("OpenAIEmbeddings");
 
@@ -45,47 +46,68 @@ export class OpenAIEmbeddingProvider implements EmbeddingProvider {
   }
 
   async embed(text: string): Promise<EmbeddingResult> {
-    const result = await this.embedBatch([text]);
-    const first = result.embeddings[0];
-    if (!first) {
-      throw new Error("No embedding returned from OpenAI");
-    }
-    return first;
+    return withSpan(
+      `embedding.generate.openai`,
+      SpanOperations.EMBEDDING_GENERATE,
+      async (span) => {
+        span?.setAttribute(SpanAttributes.EMBEDDING_PROVIDER, "openai");
+        span?.setAttribute(SpanAttributes.EMBEDDING_MODEL, this.modelId);
+        span?.setAttribute(SpanAttributes.EMBEDDING_DIMENSIONS, this.dimension);
+
+        const result = await this.embedBatch([text]);
+        const first = result.embeddings[0];
+        if (!first) {
+          throw new Error("No embedding returned from OpenAI");
+        }
+        return first;
+      }
+    );
   }
 
   async embedBatch(texts: string[]): Promise<BatchEmbeddingResult> {
-    logger.debug("Generating embeddings", {
-      count: texts.length,
-      model: this.modelId,
-    });
+    return withSpan(
+      `embedding.generate.batch.openai`,
+      SpanOperations.EMBEDDING_GENERATE,
+      async (span) => {
+        span?.setAttribute(SpanAttributes.EMBEDDING_PROVIDER, "openai");
+        span?.setAttribute(SpanAttributes.EMBEDDING_MODEL, this.modelId);
+        span?.setAttribute(SpanAttributes.EMBEDDING_DIMENSIONS, this.dimension);
+        span?.setAttribute(SpanAttributes.EMBEDDING_BATCH_SIZE, texts.length);
 
-    const response = await fetch(`${this.baseUrl}/embeddings`, {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${this.apiKey}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        model: this.modelId,
-        input: texts,
-      }),
-    });
+        logger.debug("Generating embeddings", {
+          count: texts.length,
+          model: this.modelId,
+        });
 
-    if (!response.ok) {
-      const error = await response.text();
-      throw new Error(`OpenAI API error: ${response.status} - ${error}`);
-    }
+        const response = await fetch(`${this.baseUrl}/embeddings`, {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${this.apiKey}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            model: this.modelId,
+            input: texts,
+          }),
+        });
 
-    const data = (await response.json()) as OpenAIEmbeddingResponse;
+        if (!response.ok) {
+          const error = await response.text();
+          throw new Error(`OpenAI API error: ${response.status} - ${error}`);
+        }
 
-    return {
-      embeddings: data.data.map((item) => ({
-        embedding: item.embedding,
-        model: this.fullModelName,
-        dimension: this.dimension,
-      })),
-      totalTokens: data.usage?.total_tokens,
-    };
+        const data = (await response.json()) as OpenAIEmbeddingResponse;
+
+        return {
+          embeddings: data.data.map((item) => ({
+            embedding: item.embedding,
+            model: this.fullModelName,
+            dimension: this.dimension,
+          })),
+          totalTokens: data.usage?.total_tokens,
+        };
+      }
+    );
   }
 }
 

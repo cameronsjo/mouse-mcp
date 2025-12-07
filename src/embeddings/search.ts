@@ -16,6 +16,7 @@ import {
 import { getEntityById } from "../db/entities.js";
 import { buildEmbeddingText, hashEmbeddingText } from "./text-builder.js";
 import { createLogger } from "../shared/logger.js";
+import { withSpan, SpanAttributes, SpanOperations } from "../shared/index.js";
 
 const logger = createLogger("SemanticSearch");
 
@@ -50,55 +51,72 @@ export async function semanticSearch<T extends DisneyEntity>(
   query: string,
   options: SemanticSearchOptions = {}
 ): Promise<Array<SemanticSearchResult<T>>> {
-  const { limit = 10, minScore = 0.3 } = options;
+  return withSpan(`embedding.semantic-search`, SpanOperations.EMBEDDING_SEARCH, async (span) => {
+    const { limit = 10, minScore = 0.3 } = options;
 
-  logger.debug("Semantic search", { query, options });
+    span?.setAttribute("search.query", query);
+    span?.setAttribute("search.limit", limit);
+    span?.setAttribute("search.min_score", minScore);
+    if (options.entityType) {
+      span?.setAttribute(SpanAttributes.DISNEY_ENTITY_TYPE, options.entityType);
+    }
+    if (options.destinationId) {
+      span?.setAttribute(SpanAttributes.DISNEY_DESTINATION, options.destinationId);
+    }
 
-  // Get embedding provider
-  const provider = await getEmbeddingProvider();
+    logger.debug("Semantic search", { query, options });
 
-  // Generate query embedding
-  const queryResult = await provider.embed(query);
-  const queryVector = queryResult.embedding;
+    // Get embedding provider
+    const provider = await getEmbeddingProvider();
 
-  // Search LanceDB with filters
-  const searchResults = await vectorSearch(queryVector, provider.fullModelName, {
-    limit: limit * 2, // Get extra to filter by score
-    entityType: options.entityType,
-    destinationId: options.destinationId,
-  });
+    // Generate query embedding
+    const queryResult = await provider.embed(query);
+    const queryVector = queryResult.embedding;
 
-  if (searchResults.length === 0) {
-    logger.debug("No embeddings found, returning empty results");
-    return [];
-  }
-
-  // Load entities and filter by score
-  const results: Array<SemanticSearchResult<T>> = [];
-
-  for (const match of searchResults) {
-    if (results.length >= limit) break;
-
-    const score = distanceToScore(match._distance);
-    if (score < minScore) continue;
-
-    const entity = await getEntityById<T>(match.id);
-    if (!entity) continue;
-
-    results.push({
-      entity,
-      score,
-      distance: match._distance,
+    // Search LanceDB with filters
+    const searchResults = await vectorSearch(queryVector, provider.fullModelName, {
+      limit: limit * 2, // Get extra to filter by score
+      entityType: options.entityType,
+      destinationId: options.destinationId,
     });
-  }
 
-  logger.debug("Semantic search complete", {
-    query,
-    resultsCount: results.length,
-    topScore: results[0]?.score,
+    if (searchResults.length === 0) {
+      logger.debug("No embeddings found, returning empty results");
+      return [];
+    }
+
+    // Load entities and filter by score
+    const results: Array<SemanticSearchResult<T>> = [];
+
+    for (const match of searchResults) {
+      if (results.length >= limit) break;
+
+      const score = distanceToScore(match._distance);
+      if (score < minScore) continue;
+
+      const entity = await getEntityById<T>(match.id);
+      if (!entity) continue;
+
+      results.push({
+        entity,
+        score,
+        distance: match._distance,
+      });
+    }
+
+    span?.setAttribute("search.results_count", results.length);
+    if (results[0]) {
+      span?.setAttribute("search.top_score", results[0].score);
+    }
+
+    logger.debug("Semantic search complete", {
+      query,
+      resultsCount: results.length,
+      topScore: results[0]?.score,
+    });
+
+    return results;
   });
-
-  return results;
 }
 
 /**
@@ -106,35 +124,46 @@ export async function semanticSearch<T extends DisneyEntity>(
  * Generates embedding if missing or stale.
  */
 export async function ensureEmbedding(entity: DisneyEntity): Promise<void> {
-  const provider = await getEmbeddingProvider();
-  const text = buildEmbeddingText(entity);
-  const hash = hashEmbeddingText(text);
+  return withSpan(`embedding.ensure`, SpanOperations.EMBEDDING_GENERATE, async (span) => {
+    span?.setAttribute(SpanAttributes.DISNEY_ENTITY_ID, entity.id);
+    span?.setAttribute(SpanAttributes.DISNEY_ENTITY_TYPE, entity.entityType);
+    span?.setAttribute(SpanAttributes.DISNEY_DESTINATION, entity.destinationId);
 
-  // Check if embedding exists and is current
-  if (!(await isEmbeddingStale(entity.id, provider.fullModelName, hash))) {
-    return; // Embedding is current
-  }
+    const provider = await getEmbeddingProvider();
+    const text = buildEmbeddingText(entity);
+    const hash = hashEmbeddingText(text);
 
-  logger.debug("Generating embedding for entity", {
-    id: entity.id,
-    name: entity.name,
-    model: provider.fullModelName,
+    // Check if embedding exists and is current
+    if (!(await isEmbeddingStale(entity.id, provider.fullModelName, hash))) {
+      span?.setAttribute("embedding.cached", true);
+      return; // Embedding is current
+    }
+
+    span?.setAttribute("embedding.cached", false);
+    span?.setAttribute(SpanAttributes.EMBEDDING_PROVIDER, provider.providerId);
+    span?.setAttribute(SpanAttributes.EMBEDDING_MODEL, provider.modelId);
+
+    logger.debug("Generating embedding for entity", {
+      id: entity.id,
+      name: entity.name,
+      model: provider.fullModelName,
+    });
+
+    const result = await provider.embed(text);
+
+    const record: EmbeddingRecord = {
+      id: entity.id,
+      model: result.model,
+      vector: result.embedding,
+      textHash: hash,
+      entityType: entity.entityType,
+      destinationId: entity.destinationId,
+      name: entity.name,
+      createdAt: new Date().toISOString(),
+    };
+
+    await saveEmbedding(record);
   });
-
-  const result = await provider.embed(text);
-
-  const record: EmbeddingRecord = {
-    id: entity.id,
-    model: result.model,
-    vector: result.embedding,
-    textHash: hash,
-    entityType: entity.entityType,
-    destinationId: entity.destinationId,
-    name: entity.name,
-    createdAt: new Date().toISOString(),
-  };
-
-  await saveEmbedding(record);
 }
 
 /**
@@ -142,67 +171,79 @@ export async function ensureEmbedding(entity: DisneyEntity): Promise<void> {
  * More efficient than individual calls for bulk operations.
  */
 export async function ensureEmbeddingsBatch(entities: DisneyEntity[]): Promise<number> {
-  const provider = await getEmbeddingProvider();
-  let generated = 0;
+  return withSpan(`embedding.ensure-batch`, SpanOperations.EMBEDDING_GENERATE, async (span) => {
+    span?.setAttribute("embedding.total_entities", entities.length);
 
-  // Filter to entities needing embeddings
-  const needsEmbedding: Array<{
-    entity: DisneyEntity;
-    text: string;
-    hash: string;
-  }> = [];
+    const provider = await getEmbeddingProvider();
+    let generated = 0;
 
-  for (const entity of entities) {
-    const text = buildEmbeddingText(entity);
-    const hash = hashEmbeddingText(text);
+    span?.setAttribute(SpanAttributes.EMBEDDING_PROVIDER, provider.providerId);
+    span?.setAttribute(SpanAttributes.EMBEDDING_MODEL, provider.modelId);
 
-    if (await isEmbeddingStale(entity.id, provider.fullModelName, hash)) {
-      needsEmbedding.push({ entity, text, hash });
+    // Filter to entities needing embeddings
+    const needsEmbedding: Array<{
+      entity: DisneyEntity;
+      text: string;
+      hash: string;
+    }> = [];
+
+    for (const entity of entities) {
+      const text = buildEmbeddingText(entity);
+      const hash = hashEmbeddingText(text);
+
+      if (await isEmbeddingStale(entity.id, provider.fullModelName, hash)) {
+        needsEmbedding.push({ entity, text, hash });
+      }
     }
-  }
 
-  if (needsEmbedding.length === 0) {
-    return 0;
-  }
+    span?.setAttribute("embedding.needs_generation", needsEmbedding.length);
+    span?.setAttribute("embedding.cached", entities.length - needsEmbedding.length);
 
-  logger.info("Generating embeddings batch", {
-    count: needsEmbedding.length,
-    model: provider.fullModelName,
+    if (needsEmbedding.length === 0) {
+      return 0;
+    }
+
+    logger.info("Generating embeddings batch", {
+      count: needsEmbedding.length,
+      model: provider.fullModelName,
+    });
+
+    // Process in batches to avoid memory issues
+    const BATCH_SIZE = 50;
+
+    for (let i = 0; i < needsEmbedding.length; i += BATCH_SIZE) {
+      const batch = needsEmbedding.slice(i, i + BATCH_SIZE);
+      const texts = batch.map((b) => b.text);
+
+      const results = await provider.embedBatch(texts);
+
+      const records: EmbeddingRecord[] = [];
+
+      for (let j = 0; j < batch.length; j++) {
+        const item = batch[j]!;
+        const result = results.embeddings[j];
+        if (!result) continue;
+
+        records.push({
+          id: item.entity.id,
+          model: result.model,
+          vector: result.embedding,
+          textHash: item.hash,
+          entityType: item.entity.entityType,
+          destinationId: item.entity.destinationId,
+          name: item.entity.name,
+          createdAt: new Date().toISOString(),
+        });
+
+        generated++;
+      }
+
+      await saveEmbeddingsBatch(records);
+    }
+
+    span?.setAttribute("embedding.generated", generated);
+
+    logger.info("Embeddings batch complete", { generated });
+    return generated;
   });
-
-  // Process in batches to avoid memory issues
-  const BATCH_SIZE = 50;
-
-  for (let i = 0; i < needsEmbedding.length; i += BATCH_SIZE) {
-    const batch = needsEmbedding.slice(i, i + BATCH_SIZE);
-    const texts = batch.map((b) => b.text);
-
-    const results = await provider.embedBatch(texts);
-
-    const records: EmbeddingRecord[] = [];
-
-    for (let j = 0; j < batch.length; j++) {
-      const item = batch[j]!;
-      const result = results.embeddings[j];
-      if (!result) continue;
-
-      records.push({
-        id: item.entity.id,
-        model: result.model,
-        vector: result.embedding,
-        textHash: item.hash,
-        entityType: item.entity.entityType,
-        destinationId: item.entity.destinationId,
-        name: item.entity.name,
-        createdAt: new Date().toISOString(),
-      });
-
-      generated++;
-    }
-
-    await saveEmbeddingsBatch(records);
-  }
-
-  logger.info("Embeddings batch complete", { generated });
-  return generated;
 }
