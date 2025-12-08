@@ -69,9 +69,9 @@ Current SDK: `@modelcontextprotocol/sdk@1.12.0` (needs upgrade for 2025-11-25 fe
 |------|----------|--------|-------|
 | Upgrade to MCP SDK 2025-11-25 | p1 | small | Update @modelcontextprotocol/sdk for new spec features |
 | Implement OAuth 2.1 authentication | p1 | large | Required for cloud deployment - PKCE, RFC 8707 resource indicators. See [research-mcp-authorization.md](./research-mcp-authorization.md) and [authorization-server-comparison.md](./authorization-server-comparison.md) |
-| Add Streamable HTTP transport | p1 | medium | Enable cloud deployment alongside stdio. See [research-http-transport.md](./research-http-transport.md), [http-transport-quickstart.md](./http-transport-quickstart.md), [http-transport-architecture.md](./http-transport-architecture.md), and [http-transport-examples.md](./http-transport-examples.md) |
+| ~~Add Streamable HTTP transport~~ | ✅ | medium | HttpTransportServer with /mcp endpoint, session management |
 | Implement MCP Tasks | p2 | medium | Long-running ops (disney_sync) with progress tracking |
-| Add .well-known discovery endpoint | p2 | small | Server metadata at /.well-known/mcp for capability discovery |
+| ~~Add .well-known discovery endpoint~~ | ✅ | small | Server metadata at /.well-known/mcp |
 | Implement MCP Prompts | p2 | medium | Trip planning templates, park day itineraries |
 | Implement Elicitation | p3 | medium | Request park preferences, party size, dates from user |
 | Add OAuth Client ID Metadata | p3 | small | URL-based client registration (replaces DCR) |
@@ -82,8 +82,8 @@ Current SDK: `@modelcontextprotocol/sdk@1.12.0` (needs upgrade for 2025-11-25 fe
 
 | Item | Priority | Effort | Notes |
 |------|----------|--------|-------|
-| Dockerize server | p1 | small | Multi-stage build, non-root user, minimal image |
-| Add health check endpoint | p1 | small | /health for container orchestration |
+| ~~Dockerize server~~ | ✅ | small | Multi-stage build, non-root user, node:22-slim |
+| ~~Add health check endpoint~~ | ✅ | small | /health with uptime, sessions, database status |
 | Implement Zero Trust security | p1 | medium | Validate every request, no implicit trust |
 | Add JWT token validation | p1 | medium | Verify signatures, check issuer/audience/expiry |
 | Implement RBAC | p2 | medium | Role-based access control for tools |

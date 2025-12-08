@@ -16,6 +16,8 @@ export type EmbeddingProviderType = "openai" | "transformers" | "auto";
 
 export type BrowserBackendType = "playwright" | "lightpanda" | "auto";
 
+export type TransportMode = "stdio" | "http";
+
 export interface ObservabilityConfig {
   /** Sentry DSN for error tracking and performance monitoring */
   readonly sentryDsn: string | undefined;
@@ -47,6 +49,12 @@ export interface Config {
   readonly openaiApiKey: string | undefined;
   /** Observability configuration (Sentry + OTEL) */
   readonly observability: ObservabilityConfig;
+  /** Transport mode: stdio (default) or http */
+  readonly transport: TransportMode;
+  /** HTTP server port (only used when transport=http) */
+  readonly httpPort: number;
+  /** HTTP server host (only used when transport=http) */
+  readonly httpHost: string;
 }
 
 let cachedConfig: Config | null = null;
@@ -105,6 +113,10 @@ export function getConfig(): Config {
       sentryDebug: process.env.MOUSE_MCP_SENTRY_DEBUG === "true",
       otelExporterEndpoint: process.env.OTEL_EXPORTER_OTLP_ENDPOINT,
     },
+    // Transport configuration
+    transport: parseTransportMode(process.env.MOUSE_MCP_TRANSPORT),
+    httpPort: parseInt(process.env.MOUSE_MCP_PORT ?? "3000", 10),
+    httpHost: process.env.MOUSE_MCP_HOST ?? "127.0.0.1",
   };
 
   return cachedConfig;
@@ -153,6 +165,16 @@ function parseEmbeddingProvider(value: string | undefined): EmbeddingProviderTyp
     }
   }
   return "auto";
+}
+
+/**
+ * Parse transport mode from environment.
+ */
+function parseTransportMode(value: string | undefined): TransportMode {
+  if (value === "http") {
+    return "http";
+  }
+  return "stdio"; // Default to stdio for backwards compatibility
 }
 
 /**

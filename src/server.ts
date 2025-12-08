@@ -2,12 +2,16 @@
  * Disney MCP Server
  *
  * MCP server that provides Disney parks data through tools.
+ * Supports both stdio (default) and HTTP transports.
  */
 
 // Using low-level Server API for fine-grained control over request handling
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
+import type { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import { CallToolRequestSchema, ListToolsRequestSchema } from "@modelcontextprotocol/sdk/types.js";
+import { getConfig } from "./config/index.js";
+import { HttpTransportServer } from "./transport/index.js";
 import {
   createLogger,
   setMcpServer,
@@ -38,6 +42,7 @@ export class DisneyMcpServer {
   // eslint-disable-next-line @typescript-eslint/no-deprecated -- Using low-level Server for fine-grained control
   private readonly server: Server;
   private cleanupEventHandlers?: () => void;
+  private httpServer?: HttpTransportServer;
 
   constructor() {
     // eslint-disable-next-line @typescript-eslint/no-deprecated
@@ -151,11 +156,15 @@ export class DisneyMcpServer {
 
   /**
    * Initialize and start the server.
+   * Uses transport mode from config (stdio or http).
    */
   async run(): Promise<void> {
+    const config = getConfig();
+
     logger.info("Starting Disney Parks MCP server", {
       name: SERVER_NAME,
       version: SERVER_VERSION,
+      transport: config.transport,
     });
 
     // Initialize session manager
@@ -170,11 +179,36 @@ export class DisneyMcpServer {
     this.cleanupEventHandlers = registerEmbeddingHandlers();
     logger.debug("Event handlers registered");
 
-    // Connect to stdio transport
+    // Connect based on transport mode
+    if (config.transport === "http") {
+      await this.runHttp(config.httpPort, config.httpHost);
+    } else {
+      await this.runStdio();
+    }
+  }
+
+  /**
+   * Run with stdio transport (default for local Claude Desktop).
+   */
+  private async runStdio(): Promise<void> {
     const transport = new StdioServerTransport();
     await this.server.connect(transport);
+    logger.info("Disney Parks MCP server running (stdio)");
+  }
 
-    logger.info("Disney Parks MCP server running");
+  /**
+   * Run with HTTP transport (for cloud deployment).
+   */
+  private async runHttp(port: number, host: string): Promise<void> {
+    this.httpServer = new HttpTransportServer();
+
+    // Set up connector to link HTTP transports to MCP server
+    this.httpServer.setMcpServerConnector(async (transport: StreamableHTTPServerTransport) => {
+      await this.server.connect(transport);
+    });
+
+    await this.httpServer.start(port, host);
+    logger.info("Disney Parks MCP server running (http)", { port, host });
   }
 
   /**
@@ -192,6 +226,12 @@ export class DisneyMcpServer {
 
       // Remove all event listeners
       removeAllEventListeners();
+
+      // Shutdown HTTP server if running
+      if (this.httpServer) {
+        await this.httpServer.stop();
+        logger.debug("HTTP server stopped");
+      }
 
       // Shutdown session manager (close browser)
       const sessionManager = getSessionManager();
