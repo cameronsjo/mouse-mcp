@@ -9,7 +9,13 @@
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import type { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
-import { CallToolRequestSchema, ListToolsRequestSchema } from "@modelcontextprotocol/sdk/types.js";
+import {
+  CallToolRequestSchema,
+  ListToolsRequestSchema,
+  ListPromptsRequestSchema,
+  GetPromptRequestSchema,
+  type GetPromptResult,
+} from "@modelcontextprotocol/sdk/types.js";
 import { getConfig } from "./config/index.js";
 import { HttpTransportServer } from "./transport/index.js";
 import {
@@ -24,6 +30,7 @@ import {
 } from "./shared/index.js";
 import { formatErrorResponse } from "./shared/errors.js";
 import { getToolDefinitions, getTool } from "./tools/index.js";
+import { getPromptDefinitions, executePrompt } from "./prompts/index.js";
 import { getSessionManager } from "./clients/index.js";
 import { closeDatabase, cachePurgeExpired } from "./db/index.js";
 import { registerEmbeddingHandlers, removeAllEventListeners } from "./events/index.js";
@@ -54,6 +61,7 @@ export class DisneyMcpServer {
       {
         capabilities: {
           tools: {},
+          prompts: {},
         },
       }
     );
@@ -116,6 +124,28 @@ export class DisneyMcpServer {
         },
         { [SpanAttributes.MCP_TOOL]: name }
       );
+    });
+
+    // List prompts handler
+    this.server.setRequestHandler(ListPromptsRequestSchema, async () => {
+      logger.debug("ListPrompts request");
+      return {
+        prompts: getPromptDefinitions(),
+      };
+    });
+
+    // Get prompt handler
+    this.server.setRequestHandler(GetPromptRequestSchema, async (request) => {
+      const { name, arguments: args } = request.params;
+      logger.debug("GetPrompt request", { prompt: name });
+
+      const result = await executePrompt(name, args ?? {});
+      if (!result) {
+        throw new Error(`Unknown prompt: ${name}`);
+      }
+
+      // Cast to SDK type - our internal type matches the SDK structure
+      return result as unknown as GetPromptResult;
     });
   }
 
