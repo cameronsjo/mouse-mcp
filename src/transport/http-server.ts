@@ -14,6 +14,7 @@ import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/
 import { isInitializeRequest } from "@modelcontextprotocol/sdk/types.js";
 import { createLogger, type LogContext } from "../shared/logger.js";
 import { getConfig } from "../config/index.js";
+import { BearerAuthenticator, type ValidatedToken } from "../auth/index.js";
 
 const logger = createLogger("HttpServer");
 
@@ -24,6 +25,7 @@ const DEFAULT_HTTP_HOST = "127.0.0.1";
 interface TransportSession {
   transport: StreamableHTTPServerTransport;
   createdAt: Date;
+  token?: ValidatedToken;
 }
 
 /**
@@ -53,6 +55,8 @@ export class HttpTransportServer {
   private server: Server | null = null;
   private readonly transports = new Map<string, TransportSession>();
   private readonly startTime: Date = new Date();
+  private authenticator: BearerAuthenticator | null = null;
+  private resourceUrl = "";
 
   private mcpServerConnector: ((transport: StreamableHTTPServerTransport) => Promise<void>) | null =
     null;
@@ -74,6 +78,22 @@ export class HttpTransportServer {
     const config = getConfig();
     const actualPort = port ?? config.httpPort ?? DEFAULT_HTTP_PORT;
     const actualHost = host ?? config.httpHost ?? DEFAULT_HTTP_HOST;
+
+    // Build resource URL for OAuth
+    // WHY: Used in WWW-Authenticate header and protected resource metadata
+    const protocol = actualHost === "127.0.0.1" || actualHost === "localhost" ? "http" : "https";
+    this.resourceUrl = `${protocol}://${actualHost}:${actualPort}`;
+
+    // Initialize bearer authenticator
+    // WHY: Validates JWT tokens on incoming requests when OAuth is enabled
+    this.authenticator = new BearerAuthenticator(config.oauth, this.resourceUrl);
+
+    if (config.oauth.enabled) {
+      logger.info("OAuth authentication enabled", {
+        issuer: config.oauth.authServer?.issuer,
+        audience: config.oauth.authServer?.audience,
+      } as LogContext);
+    }
 
     return new Promise((resolve, reject) => {
       this.server = createServer((req, res) => {
@@ -150,6 +170,8 @@ export class HttpTransportServer {
         this.handleHealthCheck(res);
       } else if (path === "/.well-known/mcp") {
         this.handleDiscovery(res);
+      } else if (path === "/.well-known/oauth-protected-resource") {
+        this.handleProtectedResourceMetadata(res);
       } else if (path === "/mcp") {
         await this.handleMcpRequest(req, res);
       } else {
@@ -187,6 +209,7 @@ export class HttpTransportServer {
    * Returns server capabilities for .well-known/mcp endpoint.
    */
   private handleDiscovery(res: ServerResponse): void {
+    const config = getConfig();
     const discovery = {
       name: "mouse-mcp",
       version: "1.0.0",
@@ -199,6 +222,13 @@ export class HttpTransportServer {
       endpoints: {
         mcp: "/mcp",
       },
+      // Include auth info if OAuth is enabled
+      ...(config.oauth.enabled && {
+        authentication: {
+          type: "oauth2",
+          protected_resource_metadata: `${this.resourceUrl}/.well-known/oauth-protected-resource`,
+        },
+      }),
     };
 
     res.writeHead(200, { "Content-Type": "application/json" });
@@ -206,10 +236,40 @@ export class HttpTransportServer {
   }
 
   /**
+   * Handle OAuth protected resource metadata (RFC 9728).
+   * Returns authorization server info and supported scopes.
+   */
+  private handleProtectedResourceMetadata(res: ServerResponse): void {
+    if (!this.authenticator) {
+      this.sendError(res, 500, "Authentication not configured");
+      return;
+    }
+
+    const metadata = this.authenticator.getProtectedResourceMetadata();
+
+    res.writeHead(200, { "Content-Type": "application/json" });
+    res.end(JSON.stringify(metadata));
+  }
+
+  /**
    * Handle MCP protocol requests.
    * Manages session lifecycle and routes to appropriate transport.
    */
   private async handleMcpRequest(req: IncomingMessage, res: ServerResponse): Promise<void> {
+    // Authenticate request
+    // WHY: MCP OAuth 2.1 requires bearer token authentication for HTTP transport
+    if (this.authenticator) {
+      const authResult = await this.authenticator.authenticate(req);
+      if (!authResult.authenticated) {
+        this.authenticator.sendUnauthorized(
+          res,
+          authResult.errorType ?? "invalid_token",
+          authResult.error
+        );
+        return;
+      }
+    }
+
     // Parse request body for POST requests
     let body: unknown = undefined;
     if (req.method === "POST") {

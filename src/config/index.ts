@@ -9,6 +9,7 @@ import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { validateOpenAIKeyIfProvided } from "./validation.js";
 import { DEFAULT_SESSION_REFRESH_BUFFER_MINUTES, BROWSER_TIMEOUT_MS } from "../shared/constants.js";
+import type { OAuthConfig, AuthServerConfig } from "../auth/types.js";
 
 export type LogLevel = "DEBUG" | "INFO" | "WARN" | "ERROR";
 
@@ -17,6 +18,9 @@ export type EmbeddingProviderType = "openai" | "transformers" | "auto";
 export type BrowserBackendType = "playwright" | "lightpanda" | "auto";
 
 export type TransportMode = "stdio" | "http";
+
+// Re-export OAuth types for convenience
+export type { OAuthConfig, AuthServerConfig };
 
 export interface ObservabilityConfig {
   /** Sentry DSN for error tracking and performance monitoring */
@@ -55,6 +59,8 @@ export interface Config {
   readonly httpPort: number;
   /** HTTP server host (only used when transport=http) */
   readonly httpHost: string;
+  /** OAuth 2.1 authentication configuration */
+  readonly oauth: OAuthConfig;
 }
 
 let cachedConfig: Config | null = null;
@@ -117,6 +123,8 @@ export function getConfig(): Config {
     transport: parseTransportMode(process.env.MOUSE_MCP_TRANSPORT),
     httpPort: parseInt(process.env.MOUSE_MCP_PORT ?? "3000", 10),
     httpHost: process.env.MOUSE_MCP_HOST ?? "127.0.0.1",
+    // OAuth configuration
+    oauth: parseOAuthConfig(),
   };
 
   return cachedConfig;
@@ -175,6 +183,55 @@ function parseTransportMode(value: string | undefined): TransportMode {
     return "http";
   }
   return "stdio"; // Default to stdio for backwards compatibility
+}
+
+/**
+ * Parse OAuth configuration from environment.
+ *
+ * Environment variables:
+ * - MOUSE_MCP_OAUTH_ENABLED: Enable OAuth authentication (default: false)
+ * - MOUSE_MCP_OAUTH_ISSUER: Authorization server issuer URL
+ * - MOUSE_MCP_OAUTH_JWKS_URI: JWKS endpoint URL (defaults to {issuer}/.well-known/jwks.json)
+ * - MOUSE_MCP_OAUTH_AUDIENCE: Expected audience (this server's URL)
+ * - MOUSE_MCP_OAUTH_ALLOW_UNAUTHENTICATED: Allow requests without tokens (dev mode)
+ */
+function parseOAuthConfig(): OAuthConfig {
+  const enabled = process.env.MOUSE_MCP_OAUTH_ENABLED === "true";
+
+  if (!enabled) {
+    return {
+      enabled: false,
+      allowUnauthenticated: true,
+    };
+  }
+
+  const issuer = process.env.MOUSE_MCP_OAUTH_ISSUER;
+  const audience = process.env.MOUSE_MCP_OAUTH_AUDIENCE;
+
+  if (!issuer || !audience) {
+    throw new Error(
+      "OAuth enabled but MOUSE_MCP_OAUTH_ISSUER and MOUSE_MCP_OAUTH_AUDIENCE are required"
+    );
+  }
+
+  // Default JWKS URI follows OIDC convention
+  const jwksUri = process.env.MOUSE_MCP_OAUTH_JWKS_URI ?? `${issuer}/.well-known/jwks.json`;
+
+  const authServer: AuthServerConfig = {
+    issuer,
+    jwksUri,
+    audience,
+    options: {
+      clockTolerance: 60,
+      strictAudience: true,
+    },
+  };
+
+  return {
+    enabled: true,
+    authServer,
+    allowUnauthenticated: process.env.MOUSE_MCP_OAUTH_ALLOW_UNAUTHENTICATED === "true",
+  };
 }
 
 /**
