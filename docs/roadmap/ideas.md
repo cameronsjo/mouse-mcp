@@ -4,7 +4,7 @@ Ideas and planned features for mouse-mcp.
 
 ## MCP 2025-11-25 Spec Compliance
 
-Current SDK: `@modelcontextprotocol/sdk@1.12.0` (needs upgrade for 2025-11-25 features)
+Current SDK: `@modelcontextprotocol/sdk@1.24.3` (supports 2025-11-25 protocol)
 
 ### Gap Analysis
 
@@ -12,14 +12,14 @@ Current SDK: `@modelcontextprotocol/sdk@1.12.0` (needs upgrade for 2025-11-25 fe
 |---------|--------|-------|
 | Tools | ✅ Implemented | 6 tools with schemas |
 | Resources | ❌ Missing | Could expose disney:// URIs |
-| Prompts | ❌ Missing | Could provide trip planning templates |
-| Tasks | ❌ Missing | New in 2025-11-25 for long-running ops |
+| Prompts | ✅ Implemented | 3 trip planning templates (park-day, dining-scout, thrill-finder) |
+| Tasks | ⏸️ Deferred | Experimental API, requires McpServer high-level API |
 | Sampling | ❌ N/A | Server-to-client, not needed |
 | Elicitation | ❌ Missing | Could request park preferences |
 | Roots | ❌ N/A | Filesystem boundaries, not applicable |
-| OAuth 2.1 Auth | ❌ Missing | Required for cloud deployment |
-| .well-known Discovery | ❌ Missing | New in 2025-11-25 |
-| Streamable HTTP | 📝 Researched | See [research-http-transport.md](./research-http-transport.md) |
+| OAuth 2.1 Auth | ✅ Implemented | Full spec compliance with PKCE, DPoP, JWKS rotation |
+| .well-known Discovery | ✅ Implemented | Server metadata at /.well-known/mcp |
+| Streamable HTTP | ✅ Implemented | HttpTransportServer with /mcp endpoint |
 
 ---
 
@@ -67,12 +67,12 @@ Current SDK: `@modelcontextprotocol/sdk@1.12.0` (needs upgrade for 2025-11-25 fe
 
 | Item | Priority | Effort | Notes |
 |------|----------|--------|-------|
-| Upgrade to MCP SDK 2025-11-25 | p1 | small | Update @modelcontextprotocol/sdk for new spec features |
-| Implement OAuth 2.1 authentication | p1 | large | Required for cloud deployment - PKCE, RFC 8707 resource indicators. See [research-mcp-authorization.md](./research-mcp-authorization.md) and [authorization-server-comparison.md](./authorization-server-comparison.md) |
+| ~~Upgrade to MCP SDK 2025-11-25~~ | ✅ | small | Using @modelcontextprotocol/sdk@1.24.3 with protocol version 2025-11-25 |
+| ~~Implement OAuth 2.1 authentication~~ | ✅ | large | Full spec with PKCE, DPoP, JWKS rotation, token introspection |
 | ~~Add Streamable HTTP transport~~ | ✅ | medium | HttpTransportServer with /mcp endpoint, session management |
-| Implement MCP Tasks | p2 | medium | Long-running ops (disney_sync) with progress tracking |
+| Implement MCP Tasks | ⏸️ | medium | Deferred - experimental API, requires McpServer high-level API |
 | ~~Add .well-known discovery endpoint~~ | ✅ | small | Server metadata at /.well-known/mcp |
-| Implement MCP Prompts | p2 | medium | Trip planning templates, park day itineraries |
+| ~~Implement MCP Prompts~~ | ✅ | medium | 3 templates: plan-park-day, dining-scout, thrill-finder |
 | Implement Elicitation | p3 | medium | Request park preferences, party size, dates from user |
 | Add OAuth Client ID Metadata | p3 | small | URL-based client registration (replaces DCR) |
 
