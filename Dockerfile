@@ -14,7 +14,9 @@ WORKDIR /app
 COPY package*.json ./
 
 # Install all dependencies (including devDependencies for build)
-RUN npm ci --ignore-scripts
+# Use BuildKit cache mount to speed up rebuilds
+RUN --mount=type=cache,target=/root/.npm \
+    npm ci --ignore-scripts
 
 # Copy source code
 COPY tsconfig.json ./
@@ -50,40 +52,27 @@ ENV NODE_ENV=production \
 
 WORKDIR /app
 
-# Install Playwright system dependencies for Chromium
-# These are required for headless Chromium to run in the container
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    libnss3 \
-    libnspr4 \
-    libdbus-1-3 \
-    libatk1.0-0 \
-    libatk-bridge2.0-0 \
-    libcups2 \
-    libdrm2 \
-    libxkbcommon0 \
-    libatspi2.0-0 \
-    libxcomposite1 \
-    libxdamage1 \
-    libxfixes3 \
-    libxrandr2 \
-    libgbm1 \
-    libasound2 \
-    libpango-1.0-0 \
-    libcairo2 \
+# Install Playwright system dependencies and browser in a single layer
+# Using playwright install-deps for automatic dependency management
+RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
+    --mount=type=cache,target=/var/lib/apt,sharing=locked \
+    apt-get update && apt-get install -y --no-install-recommends \
+    # Required for playwright install-deps to work
+    curl \
     && rm -rf /var/lib/apt/lists/*
 
-# Copy package files and install production deps
+# Copy package files and install production deps + Playwright browser
 COPY package*.json ./
-RUN npm ci --omit=dev --ignore-scripts \
-    && npm cache clean --force \
-    # Remove unnecessary files to reduce image size
-    && rm -rf /root/.npm /tmp/*
+RUN --mount=type=cache,target=/root/.npm \
+    npm ci --omit=dev --ignore-scripts \
+    # Install Playwright deps and browser in same layer
+    && npx playwright install --with-deps chromium \
+    # Clean up to reduce image size
+    && rm -rf /tmp/* \
+    && apt-get clean
 
-# Install Playwright Chromium browser
-RUN npx playwright install chromium
-
-# Copy built application from builder stage
-COPY --from=builder /app/dist ./dist
+# Copy built application from builder stage (--link for faster copies)
+COPY --link --from=builder /app/dist ./dist
 
 # Security: Create data directory and set ownership
 # Run as non-root user (node:node already exists in base image, uid:gid 1000:1000)
@@ -92,6 +81,9 @@ RUN mkdir -p /app/.data \
 
 # Security: Drop to non-root user
 USER node
+
+# Graceful shutdown signal
+STOPSIGNAL SIGTERM
 
 # Health check using Node.js fetch API
 HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
