@@ -44,16 +44,43 @@ ENV NODE_ENV=production \
     MOUSE_MCP_TRANSPORT=http \
     MOUSE_MCP_PORT=3000 \
     MOUSE_MCP_HOST=0.0.0.0 \
-    MOUSE_MCP_DB_PATH=/app/.data/disney.db
+    MOUSE_MCP_DB_PATH=/app/.data/disney.db \
+    # Playwright browser cache location
+    PLAYWRIGHT_BROWSERS_PATH=/app/.cache/ms-playwright
 
 WORKDIR /app
 
-# Copy package files and install production deps in single layer
+# Install Playwright system dependencies for Chromium
+# These are required for headless Chromium to run in the container
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    libnss3 \
+    libnspr4 \
+    libdbus-1-3 \
+    libatk1.0-0 \
+    libatk-bridge2.0-0 \
+    libcups2 \
+    libdrm2 \
+    libxkbcommon0 \
+    libatspi2.0-0 \
+    libxcomposite1 \
+    libxdamage1 \
+    libxfixes3 \
+    libxrandr2 \
+    libgbm1 \
+    libasound2 \
+    libpango-1.0-0 \
+    libcairo2 \
+    && rm -rf /var/lib/apt/lists/*
+
+# Copy package files and install production deps
 COPY package*.json ./
 RUN npm ci --omit=dev --ignore-scripts \
     && npm cache clean --force \
     # Remove unnecessary files to reduce image size
     && rm -rf /root/.npm /tmp/*
+
+# Install Playwright Chromium browser
+RUN npx playwright install chromium
 
 # Copy built application from builder stage
 COPY --from=builder /app/dist ./dist
@@ -61,7 +88,7 @@ COPY --from=builder /app/dist ./dist
 # Security: Create data directory and set ownership
 # Run as non-root user (node:node already exists in base image, uid:gid 1000:1000)
 RUN mkdir -p /app/.data \
-    && chown -R node:node /app
+    && chown -R node:node /app /app/.cache
 
 # Security: Drop to non-root user
 USER node
