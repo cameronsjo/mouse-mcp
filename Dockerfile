@@ -14,7 +14,9 @@ WORKDIR /app
 COPY package*.json ./
 
 # Install all dependencies (including devDependencies for build)
-RUN npm ci --ignore-scripts
+# Use BuildKit cache mount to speed up rebuilds
+RUN --mount=type=cache,target=/root/.npm \
+    npm ci --ignore-scripts
 
 # Copy source code
 COPY tsconfig.json ./
@@ -44,27 +46,44 @@ ENV NODE_ENV=production \
     MOUSE_MCP_TRANSPORT=http \
     MOUSE_MCP_PORT=3000 \
     MOUSE_MCP_HOST=0.0.0.0 \
-    MOUSE_MCP_DB_PATH=/app/.data/disney.db
+    MOUSE_MCP_DB_PATH=/app/.data/disney.db \
+    # Playwright browser cache location
+    PLAYWRIGHT_BROWSERS_PATH=/app/.cache/ms-playwright
 
 WORKDIR /app
 
-# Copy package files and install production deps in single layer
-COPY package*.json ./
-RUN npm ci --omit=dev --ignore-scripts \
-    && npm cache clean --force \
-    # Remove unnecessary files to reduce image size
-    && rm -rf /root/.npm /tmp/*
+# Install Playwright system dependencies and browser in a single layer
+# Using playwright install-deps for automatic dependency management
+RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
+    --mount=type=cache,target=/var/lib/apt,sharing=locked \
+    apt-get update && apt-get install -y --no-install-recommends \
+    # Required for playwright install-deps to work
+    curl \
+    && rm -rf /var/lib/apt/lists/*
 
-# Copy built application from builder stage
-COPY --from=builder /app/dist ./dist
+# Copy package files and install production deps + Playwright browser
+COPY package*.json ./
+RUN --mount=type=cache,target=/root/.npm \
+    npm ci --omit=dev --ignore-scripts \
+    # Install Playwright deps and browser in same layer
+    && npx playwright install --with-deps chromium \
+    # Clean up to reduce image size
+    && rm -rf /tmp/* \
+    && apt-get clean
+
+# Copy built application from builder stage (--link for faster copies)
+COPY --link --from=builder /app/dist ./dist
 
 # Security: Create data directory and set ownership
 # Run as non-root user (node:node already exists in base image, uid:gid 1000:1000)
 RUN mkdir -p /app/.data \
-    && chown -R node:node /app
+    && chown -R node:node /app /app/.cache
 
 # Security: Drop to non-root user
 USER node
+
+# Graceful shutdown signal
+STOPSIGNAL SIGTERM
 
 # Health check using Node.js fetch API
 HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
