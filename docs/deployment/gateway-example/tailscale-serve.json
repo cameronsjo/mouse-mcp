@@ -1,0 +1,25 @@
+{
+  "TCP": {
+    "443": {
+      "HTTPS": true
+    }
+  },
+  "Web": {
+    "mcp-gateway.YOUR_TAILNET.ts.net:443": {
+      "Handlers": {
+        "/auth/": {
+          "Proxy": "http://authelia:9091"
+        },
+        "/mcp": {
+          "Proxy": "http://agentgateway:8080"
+        },
+        "/.well-known/": {
+          "Proxy": "http://agentgateway:8080"
+        }
+      }
+    }
+  },
+  "AllowFunnel": {
+    "mcp-gateway.YOUR_TAILNET.ts.net:443": true
+  }
+}

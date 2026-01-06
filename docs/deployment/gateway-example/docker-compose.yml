@@ -1,0 +1,99 @@
+# MCP Gateway Stack with Authelia + Tailscale Funnel
+#
+# Deploy mouse-mcp behind an authenticated gateway.
+# See ../gateway-pattern.md for full documentation.
+#
+# Usage:
+#   1. Copy this directory and customize
+#   2. Generate secrets (see .env.example)
+#   3. Replace YOUR_TAILNET with your Tailnet name
+#   4. docker-compose up -d
+
+services:
+  # Tailscale container with Funnel ingress
+  tailscale-mcp:
+    image: tailscale/tailscale:latest
+    hostname: mcp-gateway
+    environment:
+      - TS_AUTHKEY=${TS_AUTHKEY}
+      - TS_STATE_DIR=/var/lib/tailscale
+      - TS_SERVE_CONFIG=/config/serve.json
+    volumes:
+      - tailscale-state:/var/lib/tailscale
+      - ./tailscale-serve.json:/config/serve.json:ro
+    cap_add:
+      - NET_ADMIN
+      - SYS_MODULE
+    restart: unless-stopped
+    networks:
+      - mcp-gateway
+
+  # Authelia - OIDC Provider + MFA
+  authelia:
+    image: authelia/authelia:latest
+    volumes:
+      - ./authelia:/config
+    environment:
+      - TZ=${TZ:-America/Chicago}
+      - AUTHELIA_OIDC_HMAC_SECRET_FILE=/config/secrets/hmac
+      - AUTHELIA_OIDC_ISSUER_PRIVATE_KEY_FILE=/config/secrets/issuer.pem
+    networks:
+      - mcp-gateway
+    depends_on:
+      - redis
+    restart: unless-stopped
+
+  # Redis - Authelia session storage
+  redis:
+    image: redis:7-alpine
+    command: redis-server --save 60 1 --loglevel warning
+    volumes:
+      - redis-data:/data
+    networks:
+      - mcp-gateway
+    restart: unless-stopped
+
+  # agentgateway - MCP multiplexer with CEL authorization
+  agentgateway:
+    image: ghcr.io/agentgateway/agentgateway:latest
+    volumes:
+      - ./agentgateway.yaml:/etc/agentgateway/config.yaml:ro
+    networks:
+      - mcp-gateway
+    depends_on:
+      - authelia
+    restart: unless-stopped
+
+  # mouse-mcp - Disney Parks MCP server
+  mouse-mcp:
+    build:
+      context: ../../..
+      dockerfile: Dockerfile
+    environment:
+      - NODE_ENV=production
+      - MOUSE_MCP_TRANSPORT=http
+      - MOUSE_MCP_PORT=3000
+      - MOUSE_MCP_HOST=0.0.0.0
+      # OAuth disabled - agentgateway handles authentication
+      - MOUSE_MCP_OAUTH_ENABLED=false
+    volumes:
+      - mouse-mcp-data:/app/.data
+    networks:
+      - mcp-gateway
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://localhost:3000/health').then(r => r.ok ? process.exit(0) : process.exit(1)).catch(() => process.exit(1))"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+    restart: unless-stopped
+    # No ports exposed - only agentgateway can reach it
+
+networks:
+  mcp-gateway:
+    driver: bridge
+
+volumes:
+  tailscale-state:
+  redis-data:
+  mouse-mcp-data:

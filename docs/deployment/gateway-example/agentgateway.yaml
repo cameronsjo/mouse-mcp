@@ -1,0 +1,82 @@
+# agentgateway configuration for MCP Gateway
+#
+# Validates JWTs from Authelia and enforces per-tool authorization via CEL rules.
+# Replace YOUR_TAILNET with your actual Tailnet name.
+
+server:
+  address: ":8080"
+
+# JWT validation against Authelia
+auth:
+  # Authelia JWKS endpoint (through Tailscale proxy)
+  jwksUrl: https://mcp-gateway.YOUR_TAILNET.ts.net/auth/api/oidc/jwks
+  issuer: https://mcp-gateway.YOUR_TAILNET.ts.net/auth
+  audience: https://mcp-gateway.YOUR_TAILNET.ts.net
+
+# MCP server targets
+targets:
+  - name: mouse-mcp
+    url: http://mouse-mcp:3000/mcp
+    protocol: streamable-http
+
+  # Uncomment to add more MCP servers:
+  #
+  # - name: obsidian-mcp
+  #   url: http://obsidian-mcp:3001/mcp
+  #   protocol: streamable-http
+  #
+  # - name: home-assistant-mcp
+  #   url: http://home-assistant-mcp:3002/mcp
+  #   protocol: streamable-http
+
+# CEL authorization rules
+#
+# Variables available in CEL expressions:
+#   mcp.tool.name    - The requested tool name (string)
+#   mcp.tool.server  - The target server name (string)
+#   jwt.sub          - Token subject / user ID (string)
+#   jwt.scope        - Token scopes (use .contains() method)
+#   jwt.aud          - Token audience (string or list)
+#   jwt.iss          - Token issuer (string)
+#
+mcpAuthorization:
+  # Default deny - only explicitly allowed tools pass
+  defaultAction: deny
+
+  rules:
+    # =========================================
+    # Disney Parks MCP - mouse-mcp
+    # =========================================
+
+    # Read operations - query parks, attractions, dining, entities
+    - 'mcp.tool.name == "disney_entity" && jwt.scope.contains("disney:read")'
+    - 'mcp.tool.name == "disney_attractions" && jwt.scope.contains("disney:read")'
+    - 'mcp.tool.name == "disney_dining" && jwt.scope.contains("disney:read")'
+    - 'mcp.tool.name == "disney_destinations" && jwt.scope.contains("disney:read")'
+
+    # Sync operations - refresh data from Disney API
+    - 'mcp.tool.name == "disney_sync" && jwt.scope.contains("disney:sync")'
+
+    # Status checks - health and diagnostics
+    - 'mcp.tool.name == "disney_status" && jwt.scope.contains("disney:status")'
+
+    # =========================================
+    # Obsidian MCP (example - uncomment to use)
+    # =========================================
+
+    # Read operations
+    # - 'mcp.tool.name == "obsidian_read_note" && jwt.scope.contains("read:notes")'
+    # - 'mcp.tool.name == "obsidian_search" && jwt.scope.contains("read:notes")'
+    # - 'mcp.tool.name == "obsidian_list_notes" && jwt.scope.contains("read:notes")'
+
+    # Write operations
+    # - 'mcp.tool.name == "obsidian_create_note" && jwt.scope.contains("write:notes")'
+    # - 'mcp.tool.name == "obsidian_update_note" && jwt.scope.contains("write:notes")'
+    # - 'mcp.tool.name == "obsidian_delete_note" && jwt.scope.contains("write:notes")'
+
+    # =========================================
+    # Home Assistant MCP (example - uncomment to use)
+    # =========================================
+
+    # All home tools require execute:home scope
+    # - 'mcp.tool.name.startsWith("home_") && jwt.scope.contains("execute:home")'

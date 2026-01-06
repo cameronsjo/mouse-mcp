@@ -22,7 +22,8 @@
       "Bash(@opentelemetry/auto-instrumentations-node@^0.67.2 )",
       "Bash(@opentelemetry/exporter-trace-otlp-http@^0.208.0 )",
       "Bash(@opentelemetry/resources@^1.30.1 )",
-      "Bash(@sentry/node@^8.47.0)"
+      "Bash(@sentry/node@^8.47.0)",
+      "WebFetch(domain:www.authelia.com)"
     ],
     "deny": [],
     "ask": []

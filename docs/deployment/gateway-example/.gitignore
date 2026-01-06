@@ -1,0 +1,13 @@
+# Environment files with secrets
+.env
+
+# Authelia secrets
+authelia/secrets/hmac
+authelia/secrets/issuer.pem
+
+# Authelia runtime data
+authelia/db.sqlite3
+authelia/notification.txt
+
+# Tailscale state
+tailscale-state/

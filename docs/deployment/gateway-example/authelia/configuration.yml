@@ -1,0 +1,127 @@
+# Authelia Configuration for MCP Gateway
+#
+# Minimal config focused on OIDC provider functionality.
+# Replace YOUR_TAILNET with your actual Tailnet name.
+#
+# Full documentation: https://www.authelia.com/configuration/
+
+# Server settings
+server:
+  address: 'tcp://:9091'
+
+# Logging
+log:
+  level: 'info'
+  format: 'text'
+
+# Secret for session encryption
+# Generate with: openssl rand -hex 32
+totp:
+  issuer: 'mcp-gateway.YOUR_TAILNET.ts.net'
+
+# Authentication backend - file-based for simplicity
+# For production, consider LDAP or database backend
+authentication_backend:
+  file:
+    path: '/config/users.yml'
+    password:
+      algorithm: 'argon2id'
+
+# Session configuration
+session:
+  cookies:
+    - name: 'authelia_session'
+      domain: 'YOUR_TAILNET.ts.net'
+      authelia_url: 'https://mcp-gateway.YOUR_TAILNET.ts.net/auth'
+      expiration: '1h'
+      inactivity: '5m'
+
+  redis:
+    host: 'redis'
+    port: 6379
+
+# Storage backend - local SQLite for simplicity
+storage:
+  local:
+    path: '/config/db.sqlite3'
+
+# Access control - default deny
+access_control:
+  default_policy: 'deny'
+  rules:
+    # MCP endpoints require two-factor
+    - domain: 'mcp-gateway.YOUR_TAILNET.ts.net'
+      policy: 'two_factor'
+
+# Notifier - filesystem for development
+# For production, configure SMTP
+notifier:
+  filesystem:
+    filename: '/config/notification.txt'
+
+# OIDC Provider configuration
+identity_providers:
+  oidc:
+    # Secrets loaded from files (set via environment variables)
+    # AUTHELIA_OIDC_HMAC_SECRET_FILE=/config/secrets/hmac
+    # AUTHELIA_OIDC_ISSUER_PRIVATE_KEY_FILE=/config/secrets/issuer.pem
+
+    cors:
+      endpoints:
+        - 'authorization'
+        - 'token'
+        - 'revocation'
+        - 'introspection'
+        - 'userinfo'
+      allowed_origins_from_client_redirect_uris: true
+
+    clients:
+      - client_id: 'mcp-gateway'
+        client_name: 'MCP Gateway'
+
+        # Hash your client secret with:
+        # docker run --rm authelia/authelia:latest crypto hash generate pbkdf2 --password 'your-secret'
+        client_secret: '$pbkdf2-sha512$310000$REPLACE_WITH_YOUR_HASH'
+
+        public: false
+        authorization_policy: 'two_factor'
+
+        redirect_uris:
+          - 'https://mcp-gateway.YOUR_TAILNET.ts.net/auth/callback'
+
+        scopes:
+          - 'openid'
+          - 'profile'
+          - 'email'
+          # Disney Parks scopes
+          - 'disney:read'
+          - 'disney:sync'
+          - 'disney:status'
+          # Add other MCP scopes as needed
+          # - 'read:notes'
+          # - 'write:notes'
+          # - 'execute:home'
+
+        audience:
+          - 'https://mcp-gateway.YOUR_TAILNET.ts.net'
+
+        requested_audience_mode: 'explicit'
+
+        grant_types:
+          - 'authorization_code'
+          - 'refresh_token'
+
+        response_types:
+          - 'code'
+
+        response_modes:
+          - 'query'
+
+        pkce_challenge_method: 'S256'
+
+        token_endpoint_auth_method: 'client_secret_post'
+
+        # Token lifetimes
+        access_token_lifespan: '1h'
+        refresh_token_lifespan: '7d'
+        id_token_lifespan: '1h'
