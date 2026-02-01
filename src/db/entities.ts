@@ -208,8 +208,11 @@ export async function getEntities<T extends DisneyEntity>(options: {
       if (!row) continue;
       try {
         entities.push(JSON.parse(String(row[0])) as T);
-      } catch {
-        // Skip invalid entries
+      } catch (error) {
+        // WHY: Database corruption is rare but should be visible for debugging
+        logger.debug("Skipped invalid entity data during query", {
+          error: error instanceof Error ? error.message : String(error),
+        });
       }
     }
 
@@ -345,8 +348,11 @@ export async function searchEntitiesByName<T extends DisneyEntity>(
       if (!row) continue;
       try {
         entities.push(JSON.parse(String(row[0])) as T);
-      } catch {
-        // Skip invalid
+      } catch (error) {
+        // WHY: Database corruption is rare but should be visible for debugging
+        logger.debug("Skipped invalid entity data during search", {
+          error: error instanceof Error ? error.message : String(error),
+        });
       }
     }
 

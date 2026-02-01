@@ -135,6 +135,10 @@ export const DEFAULT_LOCALE = "en-US";
 /** Default Accept-Language header with quality value */
 export const DEFAULT_ACCEPT_LANGUAGE = "en-US,en;q=0.9";
 
+/** Default browser user agent for session establishment */
+export const DEFAULT_USER_AGENT =
+  "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36";
+
 // --- HTTP Configuration ---
 
 /** Default HTTP status codes that should not trigger retry */

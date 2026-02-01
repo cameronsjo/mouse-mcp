@@ -10,7 +10,7 @@ import { dirname } from "node:path";
 import { getConfig } from "../config/index.js";
 import { createLogger } from "../shared/logger.js";
 import { DatabaseError } from "../shared/errors.js";
-import { SCHEMA_SQL, SCHEMA_VERSION } from "./schema.js";
+import { SCHEMA_SQL, SCHEMA_VERSION, MIGRATION_V1_TO_V2_SQL } from "./schema.js";
 import {
   withSpan,
   SpanAttributes,
@@ -103,17 +103,19 @@ async function initializeDatabase(): Promise<SqlJsDatabase> {
 }
 
 /**
- * Check if schema needs initialization.
+ * Check schema version and run migrations if needed.
+ * Returns true if database needs full initialization (no tables exist).
  */
 function checkSchemaVersion(database: SqlJsDatabase): boolean {
   try {
-    // Check if metadata table exists
+    // Check if metadata table exists (indicates existing database)
     const result = database.exec(
       "SELECT name FROM sqlite_master WHERE type='table' AND name='metadata'"
     );
 
     const tableResult = result[0];
     if (!tableResult || tableResult.values.length === 0) {
+      // No metadata table - needs full initialization
       return true;
     }
 
@@ -122,6 +124,7 @@ function checkSchemaVersion(database: SqlJsDatabase): boolean {
 
     const versionData = versionResult[0];
     if (!versionData || versionData.values.length === 0) {
+      // No version - needs full initialization
       return true;
     }
 
@@ -133,17 +136,39 @@ function checkSchemaVersion(database: SqlJsDatabase): boolean {
     const currentVersion = parseInt(String(firstRow[0]), 10);
 
     if (currentVersion < SCHEMA_VERSION) {
-      logger.info("Schema migration needed", {
-        currentVersion,
-        targetVersion: SCHEMA_VERSION,
-      });
-      return true;
+      // Run incremental migrations
+      runMigrations(database, currentVersion);
+      return false; // Don't run full schema - migrations handled it
     }
 
     return false;
   } catch {
     return true;
   }
+}
+
+/**
+ * Run incremental schema migrations.
+ * WHY: Preserves existing data while adding new tables/columns.
+ */
+function runMigrations(database: SqlJsDatabase, fromVersion: number): void {
+  let version = fromVersion;
+
+  while (version < SCHEMA_VERSION) {
+    logger.info("Running migration", { from: version, to: version + 1 });
+
+    if (version === 1) {
+      database.run(MIGRATION_V1_TO_V2_SQL);
+      version = 2;
+    } else {
+      // Unknown version - shouldn't happen but log and stop
+      logger.warn("Unknown migration path", { from: version, to: SCHEMA_VERSION });
+      break;
+    }
+  }
+
+  saveDatabase(database);
+  logger.info("Migrations complete", { newVersion: SCHEMA_VERSION });
 }
 
 /**

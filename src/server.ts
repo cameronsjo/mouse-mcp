@@ -34,11 +34,15 @@ import { getPromptDefinitions, executePrompt } from "./prompts/index.js";
 import { getSessionManager } from "./clients/index.js";
 import { closeDatabase, cachePurgeExpired } from "./db/index.js";
 import { registerEmbeddingHandlers, removeAllEventListeners } from "./events/index.js";
+import { createRequire } from "node:module";
+
+const require = createRequire(import.meta.url);
+const packageJson = require("../package.json") as { version: string };
 
 const logger = createLogger("Server");
 
 const SERVER_NAME = "disney-parks";
-const SERVER_VERSION = "1.0.0";
+const SERVER_VERSION = packageJson.version;
 
 /**
  * Disney Parks MCP Server

@@ -53,10 +53,10 @@ export function getEncryptionKey(): Buffer {
         "Session data will not be accessible after restart. " +
         "Set MOUSE_MCP_ENCRYPTION_KEY environment variable to persist encryption key."
     );
-    logger.warn(`Generated ephemeral key: ${baseKey}`);
-    logger.warn(
-      "To use this key permanently, add to your environment: " +
-        `export MOUSE_MCP_ENCRYPTION_KEY="${baseKey}"`
+    // WHY: Don't log the key itself - that's a security risk if logs are captured
+    logger.debug("Generated ephemeral encryption key for this session");
+    logger.info(
+      "To generate a persistent key, run: node -e \"console.log(require('crypto').randomBytes(32).toString('hex'))\""
     );
   } else {
     baseKey = envKey;

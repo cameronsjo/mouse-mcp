@@ -12,7 +12,7 @@ import * as dining from "./dining.js";
 import * as search from "./search.js";
 import * as discover from "./discover.js";
 import * as status from "./status.js";
-import * as sync from "./sync.js";
+import * as initialize from "./initialize.js";
 
 export type { ToolDefinition, ToolHandler, ToolResult, ToolEntry };
 
@@ -24,7 +24,7 @@ const tools: ToolEntry[] = [
   { definition: search.definition, handler: search.handler },
   { definition: discover.definition, handler: discover.handler },
   { definition: status.definition, handler: status.handler },
-  { definition: sync.definition, handler: sync.handler },
+  { definition: initialize.definition, handler: initialize.handler },
 ];
 
 /**

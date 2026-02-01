@@ -14,6 +14,7 @@ import {
   BROWSER_VIEWPORT_HEIGHT,
   DEFAULT_LOCALE,
   DEFAULT_ACCEPT_LANGUAGE,
+  DEFAULT_USER_AGENT,
   COOKIE_CONSENT_WAIT_MS,
   COOKIE_CONSENT_ACCEPTED_WAIT_MS,
   SESSION_COOKIE_POLL_INTERVAL_MS,
@@ -502,7 +503,7 @@ export class SessionManager {
   }
 
   private getUserAgent(): string {
-    return "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36";
+    return DEFAULT_USER_AGENT;
   }
 }
 
@@ -512,4 +513,11 @@ let instance: SessionManager | null = null;
 export function getSessionManager(): SessionManager {
   instance ??= new SessionManager();
   return instance;
+}
+
+/**
+ * Reset the session manager singleton (for testing).
+ */
+export function resetSessionManager(): void {
+  instance = null;
 }

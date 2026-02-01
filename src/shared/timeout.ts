@@ -86,32 +86,49 @@ export async function withTimeout<T>(
 
 /**
  * Creates a combined AbortSignal that triggers when either signal is aborted.
+ * Uses AbortSignal.any() when available (Node 20+), falls back to manual linking.
  *
  * @param signal1 - First abort signal
  * @param signal2 - Second abort signal
  * @returns Combined AbortSignal
  */
 function createCombinedSignal(signal1: AbortSignal, signal2: AbortSignal): AbortSignal {
+  // Use native AbortSignal.any() if available (Node 20+)
+  // WHY: Native implementation handles cleanup automatically
+  if ("any" in AbortSignal && typeof AbortSignal.any === "function") {
+    return AbortSignal.any([signal1, signal2]);
+  }
+
+  // Fallback for older Node versions
   const controller = new AbortController();
 
-  const abort1 = (): void => {
-    controller.abort(signal1.reason);
-  };
-  const abort2 = (): void => {
-    controller.abort(signal2.reason);
-  };
-
+  // Check if already aborted first
   if (signal1.aborted) {
     controller.abort(signal1.reason);
-  } else {
-    signal1.addEventListener("abort", abort1, { once: true });
+    return controller.signal;
   }
-
   if (signal2.aborted) {
     controller.abort(signal2.reason);
-  } else {
-    signal2.addEventListener("abort", abort2, { once: true });
+    return controller.signal;
   }
+
+  // WHY: Must clean up listeners when either signal aborts to prevent memory leaks
+  const cleanup = (): void => {
+    signal1.removeEventListener("abort", onAbort1);
+    signal2.removeEventListener("abort", onAbort2);
+  };
+
+  const onAbort1 = (): void => {
+    cleanup();
+    controller.abort(signal1.reason);
+  };
+  const onAbort2 = (): void => {
+    cleanup();
+    controller.abort(signal2.reason);
+  };
+
+  signal1.addEventListener("abort", onAbort1);
+  signal2.addEventListener("abort", onAbort2);
 
   return controller.signal;
 }

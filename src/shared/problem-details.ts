@@ -437,11 +437,8 @@ function sanitizeValue(value: unknown): unknown {
  * Generate UUID v4
  *
  * Used for unique error instance URNs.
+ * WHY: crypto.randomUUID is cryptographically secure, unlike Math.random
  */
 function generateUuidV4(): string {
-  return "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, (c) => {
-    const r = (Math.random() * 16) | 0;
-    const v = c === "x" ? r : (r & 0x3) | 0x8;
-    return v.toString(16);
-  });
+  return crypto.randomUUID();
 }

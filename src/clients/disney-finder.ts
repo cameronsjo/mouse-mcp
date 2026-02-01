@@ -1222,3 +1222,10 @@ export function getDisneyFinderClient(): DisneyFinderClient {
   instance ??= new DisneyFinderClient();
   return instance;
 }
+
+/**
+ * Reset the Disney client singleton (for testing).
+ */
+export function resetDisneyFinderClient(): void {
+  instance = null;
+}
