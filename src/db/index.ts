@@ -45,6 +45,8 @@ export {
   searchEntitiesByName,
   deleteEntitiesForDestination,
   getEntityCounts,
+  getLastEntityUpdate,
+  getParkCount,
 } from "./entities.js";
 
 // Note: Embeddings now stored in LanceDB (see src/vectordb/)

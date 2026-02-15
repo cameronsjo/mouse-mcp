@@ -26,6 +26,7 @@ import {
   SpanOperations,
   Sentry,
   withAuditLogging,
+  incrementQueryCount,
   SENTRY_FLUSH_TIMEOUT_MS,
 } from "./shared/index.js";
 import { formatErrorResponse } from "./shared/errors.js";
@@ -101,6 +102,7 @@ export class DisneyMcpServer {
           span?.setAttribute(SpanAttributes.MCP_TOOL, name);
 
           logger.info("Tool invocation", { tool: name });
+          incrementQueryCount();
 
           const tool = getTool(name);
           if (!tool) {

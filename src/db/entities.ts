@@ -404,6 +404,26 @@ export async function deleteEntitiesForDestination(destinationId: DestinationId)
 }
 
 /**
+ * Get the most recent entity update timestamp.
+ * Returns null if no entities exist.
+ */
+export async function getLastEntityUpdate(): Promise<string | null> {
+  const db = await getDatabase();
+  const result = db.exec("SELECT MAX(updated_at) FROM entities");
+  const value = result[0]?.values[0]?.[0];
+  return value ? String(value) : null;
+}
+
+/**
+ * Get the total number of PARK entities across all destinations.
+ */
+export async function getParkCount(): Promise<number> {
+  const db = await getDatabase();
+  const result = db.exec("SELECT COUNT(*) FROM entities WHERE entity_type = 'PARK'");
+  return (result[0]?.values[0]?.[0] as number) ?? 0;
+}
+
+/**
  * Get entity count by type for a destination.
  */
 export async function getEntityCounts(

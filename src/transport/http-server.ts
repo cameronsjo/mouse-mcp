@@ -13,7 +13,9 @@ import { randomUUID } from "node:crypto";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import { isInitializeRequest } from "@modelcontextprotocol/sdk/types.js";
 import { createLogger, type LogContext } from "../shared/logger.js";
+import { getQueryCount } from "../shared/query-counter.js";
 import { getConfig } from "../config/index.js";
+import { getLastEntityUpdate, getParkCount } from "../db/index.js";
 import { BearerAuthenticator, type ValidatedToken } from "../auth/index.js";
 
 const logger = createLogger("HttpServer");
@@ -44,10 +46,25 @@ interface HealthCheckResponse {
 }
 
 /**
+ * Homepage widget response structure.
+ * Flat JSON required by Homepage's customapi widget (max 4 fields, no nesting).
+ * WHY snake_case: Field names are an external API contract dictated by Homepage.
+ */
+/* eslint-disable @typescript-eslint/naming-convention */
+interface WidgetResponse {
+  queries_total: number;
+  parks_available: number;
+  last_data_refresh: string | null;
+  uptime_seconds: number;
+}
+/* eslint-enable @typescript-eslint/naming-convention */
+
+/**
  * HTTP server for MCP transport.
  *
  * Provides:
  * - /health endpoint for container orchestration
+ * - /api/widget endpoint for Homepage dashboard widget
  * - /mcp endpoint for StreamableHTTP transport
  * - /.well-known/mcp discovery endpoint
  */
@@ -168,6 +185,8 @@ export class HttpTransportServer {
       // Route requests
       if (path === "/health") {
         this.handleHealthCheck(res);
+      } else if (path === "/api/widget") {
+        await this.handleWidget(res);
       } else if (path === "/.well-known/mcp") {
         this.handleDiscovery(res);
       } else if (path === "/.well-known/oauth-protected-resource") {
@@ -198,6 +217,26 @@ export class HttpTransportServer {
         database: true, // TODO: Add actual database health check
         sessions: this.transports.size,
       },
+    };
+
+    res.writeHead(200, { "Content-Type": "application/json" });
+    res.end(JSON.stringify(response));
+  }
+
+  /**
+   * Handle Homepage widget requests.
+   * Returns flat JSON stats for Homepage's customapi widget.
+   * Unauthenticated — intended for internal network use only.
+   */
+  private async handleWidget(res: ServerResponse): Promise<void> {
+    const uptimeSeconds = Math.floor((Date.now() - this.startTime.getTime()) / 1000);
+    const [lastRefresh, parkCount] = await Promise.all([getLastEntityUpdate(), getParkCount()]);
+
+    const response: WidgetResponse = {
+      queries_total: getQueryCount(),
+      parks_available: parkCount,
+      last_data_refresh: lastRefresh,
+      uptime_seconds: uptimeSeconds,
     };
 
     res.writeHead(200, { "Content-Type": "application/json" });

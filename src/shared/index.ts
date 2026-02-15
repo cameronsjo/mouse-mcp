@@ -37,5 +37,6 @@ export {
   setSecureDirectoryPermissionsSync,
 } from "./file-security.js";
 export { withAuditLogging, createAuditEntry } from "./audit-logger.js";
+export { incrementQueryCount, getQueryCount } from "./query-counter.js";
 export { withTimeout, withToolTimeout, TimeoutError, TIMEOUTS } from "./timeout.js";
 export * from "./constants.js";
