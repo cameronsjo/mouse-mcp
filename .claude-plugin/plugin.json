@@ -1,0 +1,7 @@
+{
+  "name": "mouse-mcp",
+  "description": "Disney parks data MCP server with attraction wait times and fuzzy search",
+  "author": {
+    "name": "cameronsjo"
+  }
+}

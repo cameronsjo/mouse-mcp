@@ -1,0 +1,15 @@
+{
+  "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
+  "name": "mouse-mcp",
+  "owner": {
+    "name": "Cameron Sjo",
+    "github": "cameronsjo"
+  },
+  "plugins": [
+    {
+      "name": "mouse-mcp",
+      "source": "./.claude-plugin",
+      "description": "Disney parks data MCP server with attraction wait times and fuzzy search"
+    }
+  ]
+}
