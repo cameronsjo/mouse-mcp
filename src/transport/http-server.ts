@@ -14,7 +14,7 @@ import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/
 import { isInitializeRequest } from "@modelcontextprotocol/sdk/types.js";
 import { createLogger, type LogContext } from "../shared/logger.js";
 import { getQueryCount } from "../shared/query-counter.js";
-import { getConfig } from "../config/index.js";
+import { getConfig, type Config } from "../config/index.js";
 import { getLastEntityUpdate, getParkCount } from "../db/index.js";
 import { BearerAuthenticator, type ValidatedToken } from "../auth/index.js";
 
@@ -58,6 +58,98 @@ interface WidgetResponse {
   uptime_seconds: number;
 }
 /* eslint-enable @typescript-eslint/naming-convention */
+
+/**
+ * MCP discovery document structure (served at /.well-known/mcp).
+ * WHY snake_case: Field names follow the MCP discovery convention.
+ */
+/* eslint-disable @typescript-eslint/naming-convention */
+interface DiscoveryDocument {
+  name: string;
+  version: string;
+  protocol_version: string;
+  capabilities: {
+    tools: boolean;
+    resources: boolean;
+    prompts: boolean;
+  };
+  endpoints: {
+    mcp: string;
+  };
+  authentication?: {
+    type: string;
+    protected_resource_metadata: string;
+  };
+}
+/* eslint-enable @typescript-eslint/naming-convention */
+
+/**
+ * Build the health check response payload.
+ *
+ * Pure except for `timestamp`, which captures the current time.
+ */
+export function buildHealthResponse(
+  sessionCount: number,
+  uptimeSeconds: number
+): HealthCheckResponse {
+  return {
+    status: "ok",
+    service: "mouse-mcp",
+    version: "1.0.0",
+    timestamp: new Date().toISOString(),
+    uptime: uptimeSeconds,
+    checks: {
+      // Database is assumed healthy; an actual probe is not yet wired in.
+      database: true,
+      sessions: sessionCount,
+    },
+  };
+}
+
+/**
+ * Build the MCP discovery document.
+ *
+ * Includes the `authentication` block only when OAuth is enabled.
+ */
+export function buildDiscoveryDocument(config: Config, resourceUrl: string): DiscoveryDocument {
+  return {
+    name: "mouse-mcp",
+    version: "1.0.0",
+    protocol_version: "2025-11-25",
+    capabilities: {
+      tools: true,
+      resources: false,
+      prompts: false,
+    },
+    endpoints: {
+      mcp: "/mcp",
+    },
+    // Include auth info if OAuth is enabled
+    ...(config.oauth.enabled && {
+      authentication: {
+        type: "oauth2",
+        protected_resource_metadata: `${resourceUrl}/.well-known/oauth-protected-resource`,
+      },
+    }),
+  };
+}
+
+/**
+ * Build the Homepage widget response payload.
+ */
+export function buildWidgetResponse(
+  queriesTotal: number,
+  parksAvailable: number,
+  lastDataRefresh: string | null,
+  uptimeSeconds: number
+): WidgetResponse {
+  return {
+    queries_total: queriesTotal,
+    parks_available: parksAvailable,
+    last_data_refresh: lastDataRefresh,
+    uptime_seconds: uptimeSeconds,
+  };
+}
 
 /**
  * HTTP server for MCP transport.
@@ -171,8 +263,11 @@ export class HttpTransportServer {
 
   /**
    * Route incoming requests.
+   *
+   * Public so the routing surface can be exercised in tests with fake
+   * request/response objects without binding a real socket.
    */
-  private async handleRequest(req: IncomingMessage, res: ServerResponse): Promise<void> {
+  async handleRequest(req: IncomingMessage, res: ServerResponse): Promise<void> {
     const url = new URL(req.url ?? "/", `http://${req.headers.host ?? "localhost"}`);
     const path = url.pathname;
 
@@ -207,17 +302,8 @@ export class HttpTransportServer {
    * Returns structured health information for container orchestration.
    */
   private handleHealthCheck(res: ServerResponse): void {
-    const response: HealthCheckResponse = {
-      status: "ok",
-      service: "mouse-mcp",
-      version: "1.0.0",
-      timestamp: new Date().toISOString(),
-      uptime: Math.floor((Date.now() - this.startTime.getTime()) / 1000),
-      checks: {
-        database: true, // TODO: Add actual database health check
-        sessions: this.transports.size,
-      },
-    };
+    const uptimeSeconds = Math.floor((Date.now() - this.startTime.getTime()) / 1000);
+    const response = buildHealthResponse(this.transports.size, uptimeSeconds);
 
     res.writeHead(200, { "Content-Type": "application/json" });
     res.end(JSON.stringify(response));
@@ -232,12 +318,7 @@ export class HttpTransportServer {
     const uptimeSeconds = Math.floor((Date.now() - this.startTime.getTime()) / 1000);
     const [lastRefresh, parkCount] = await Promise.all([getLastEntityUpdate(), getParkCount()]);
 
-    const response: WidgetResponse = {
-      queries_total: getQueryCount(),
-      parks_available: parkCount,
-      last_data_refresh: lastRefresh,
-      uptime_seconds: uptimeSeconds,
-    };
+    const response = buildWidgetResponse(getQueryCount(), parkCount, lastRefresh, uptimeSeconds);
 
     res.writeHead(200, { "Content-Type": "application/json" });
     res.end(JSON.stringify(response));
@@ -248,27 +329,7 @@ export class HttpTransportServer {
    * Returns server capabilities for .well-known/mcp endpoint.
    */
   private handleDiscovery(res: ServerResponse): void {
-    const config = getConfig();
-    const discovery = {
-      name: "mouse-mcp",
-      version: "1.0.0",
-      protocol_version: "2025-11-25",
-      capabilities: {
-        tools: true,
-        resources: false,
-        prompts: false,
-      },
-      endpoints: {
-        mcp: "/mcp",
-      },
-      // Include auth info if OAuth is enabled
-      ...(config.oauth.enabled && {
-        authentication: {
-          type: "oauth2",
-          protected_resource_metadata: `${this.resourceUrl}/.well-known/oauth-protected-resource`,
-        },
-      }),
-    };
+    const discovery = buildDiscoveryDocument(getConfig(), this.resourceUrl);
 
     res.writeHead(200, { "Content-Type": "application/json" });
     res.end(JSON.stringify(discovery));
@@ -384,8 +445,10 @@ export class HttpTransportServer {
 
   /**
    * Parse JSON body from request.
+   *
+   * Public so body parsing can be unit-tested with a fake request stream.
    */
-  private async parseJsonBody(req: IncomingMessage): Promise<unknown> {
+  async parseJsonBody(req: IncomingMessage): Promise<unknown> {
     return new Promise((resolve) => {
       const chunks: Buffer[] = [];
 
