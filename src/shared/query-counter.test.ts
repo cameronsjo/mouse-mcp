@@ -28,7 +28,10 @@ describe("Query Counter", () => {
     expect(getQueryCount()).toBe(baseline + 3);
   });
 
-  it("should return a number", () => {
-    expect(typeof getQueryCount()).toBe("number");
+  it("should report a non-negative integer count", () => {
+    const count = getQueryCount();
+    // Stronger than a bare typeof check: a counter must be a whole, non-negative number.
+    expect(Number.isInteger(count)).toBe(true);
+    expect(count).toBeGreaterThanOrEqual(0);
   });
 });

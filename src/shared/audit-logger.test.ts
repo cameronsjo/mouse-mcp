@@ -135,19 +135,25 @@ describe("Audit Logger", () => {
     });
 
     it("should measure execution duration accurately", async () => {
-      const mockHandler: ToolHandler = vi.fn(async () => {
-        await new Promise((resolve) => setTimeout(resolve, 50));
-        return {
-          content: [{ type: "text" as const, text: "Success" }],
-        };
-      });
+      // WHY deterministic stub instead of a real sleep: the prior test slept 50ms and
+      // asserted durationMs >= 50, which flakes on timer coalescing and slow CI. Stub
+      // performance.now (the timer the logger uses) to a fixed start/end delta.
+      const nowSpy = vi
+        .spyOn(performance, "now")
+        .mockReturnValueOnce(1000) // start
+        .mockReturnValueOnce(1050); // end → durationMs = 50
+
+      const mockHandler: ToolHandler = vi.fn(async () => ({
+        content: [{ type: "text" as const, text: "Success" }],
+      }));
 
       const wrappedHandler = withAuditLogging("test-tool", mockHandler);
       await wrappedHandler({});
 
-      // Verify duration is at least 50ms
       const completionLog = mockInfoCalls[1]?.[1] as { durationMs: number };
-      expect(completionLog.durationMs).toBeGreaterThanOrEqual(50);
+      expect(completionLog.durationMs).toBe(50);
+
+      nowSpy.mockRestore();
     });
 
     it("should handle empty arguments", async () => {

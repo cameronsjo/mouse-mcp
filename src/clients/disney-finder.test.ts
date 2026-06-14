@@ -6,8 +6,20 @@
  * Full integration tests would require Disney API authentication.
  */
 
-import { describe, it, expect, beforeEach } from "vitest";
+import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { getDisneyFinderClient, resetDisneyFinderClient } from "./disney-finder.js";
+import { setupTempDb, teardownTempDb } from "../db/__test-helpers__/temp-db.js";
+
+// WHY: getEntityById reaches the SQLite layer. Without isolation it loaded the real
+// on-disk .data/disney.db (ambient state → environment-dependent test). Point every
+// test at a fresh temp DB instead.
+beforeEach(() => {
+  setupTempDb();
+});
+
+afterEach(() => {
+  teardownTempDb();
+});
 
 describe("DisneyFinderClient", () => {
   beforeEach(() => {
