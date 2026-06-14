@@ -99,7 +99,14 @@ export class JWTValidator {
     const verifier = createVerify(verifyAlg);
     verifier.update(signedData);
 
-    if (!verifier.verify(publicKey, signature)) {
+    // WHY: JWS EC signatures are raw IEEE P1363 (r‖s) per RFC 7518, but Node's verify
+    // defaults to DER (dsaEncoding). Without ieee-p1363 on the EC branch, every valid
+    // ES256/ES384/ES512 token is rejected.
+    const verifyKey = alg.startsWith("ES")
+      ? { key: publicKey, dsaEncoding: "ieee-p1363" as const }
+      : publicKey;
+
+    if (!verifier.verify(verifyKey, signature)) {
       throw new TokenValidationError("invalid_signature", "Invalid token signature");
     }
 
