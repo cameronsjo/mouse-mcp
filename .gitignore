@@ -35,3 +35,4 @@ test-results/
 Thumbs.db
 .logs/
 .claude/reviews/
+.claude/agent-memory/

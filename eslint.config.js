@@ -154,12 +154,39 @@ export default tseslint.config(
     },
   },
   {
+    // Test files and test-only helpers: relax type-aware rules that are noise in tests.
+    // WHY: mock-method assertions (unbound-method), test-double casts (no-unsafe-return,
+    // consistent-type-assertions), and deliberately-malformed inputs (no-dynamic-delete)
+    // are idiomatic in tests. Correctness rules (no-floating-promises, etc.) stay on.
+    files: ["**/*.test.ts", "**/__test-helpers__/**/*.ts"],
+    rules: {
+      "@typescript-eslint/unbound-method": "off",
+      "@typescript-eslint/no-unsafe-return": "off",
+      "@typescript-eslint/no-unsafe-assignment": "off",
+      "@typescript-eslint/no-unsafe-member-access": "off",
+      "@typescript-eslint/no-unsafe-argument": "off",
+      "@typescript-eslint/no-unsafe-call": "off",
+      "@typescript-eslint/no-unnecessary-type-assertion": "off",
+      "@typescript-eslint/consistent-type-assertions": "off",
+      "@typescript-eslint/no-non-null-assertion": "off",
+      "@typescript-eslint/no-dynamic-delete": "off",
+      "@typescript-eslint/no-empty-function": "off",
+      "@typescript-eslint/dot-notation": "off",
+      "@typescript-eslint/explicit-function-return-type": "off",
+      "@typescript-eslint/no-confusing-void-expression": "off",
+      "@typescript-eslint/consistent-type-imports": "off",
+      "@typescript-eslint/prefer-promise-reject-errors": "off",
+    },
+  },
+  {
     ignores: [
       "dist/**",
       "node_modules/**",
       "*.js",
       "*.mjs",
       "*.cjs",
+      // Root config files are outside the tsconfig project (no type-aware linting).
+      "vitest.config.ts",
       // Example and migration documentation files (intentional non-standard naming)
       "**/*-example*.ts",
       "**/example-*.ts",

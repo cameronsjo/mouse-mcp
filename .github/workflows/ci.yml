@@ -36,8 +36,17 @@ jobs:
       - name: Run type check
         run: npm run build
 
-      - name: Run tests
-        run: npm test
+      - name: Run tests with coverage
+        # Coverage thresholds in vitest.config.ts fail the build on regression.
+        run: npm run test:cover
+
+      - name: Upload coverage report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage
+          path: coverage/
+          retention-days: 14
 
   # ==========================================================================
   # Build and Push Docker Image - Only on main branch and tags
