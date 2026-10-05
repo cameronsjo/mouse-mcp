@@ -1,4 +1,4 @@
-import { defineConfig } from "vitest/config";
+import { configDefaults, defineConfig } from "vitest/config";
 
 /**
  * Vitest configuration.
@@ -9,6 +9,8 @@ import { defineConfig } from "vitest/config";
  */
 export default defineConfig({
   test: {
+    // `npm run build` emits compiled *.test.js into dist/; vitest 5 no longer skips it by default.
+    exclude: [...configDefaults.exclude, "dist/**"],
     coverage: {
       provider: "v8",
       reporter: ["text", "text-summary", "json-summary", "lcov"],
@@ -29,11 +31,13 @@ export default defineConfig({
         // Demo/example code that should not count toward the denominator.
         "src/events/example-usage.ts",
       ],
+      // Re-baselined for vitest 5, whose v8 provider counts statements and branches
+      // differently (same files and tests: branches 85.4% -> 49.9% on 984 -> 1549 total).
       thresholds: {
-        statements: 60,
-        branches: 80,
-        functions: 65,
-        lines: 60,
+        statements: 58,
+        branches: 48,
+        functions: 63,
+        lines: 58,
       },
     },
   },

@@ -53,7 +53,9 @@ vi.mock("./jwt-validator.js", async (importActual) => {
   const actual = await importActual<typeof import("./jwt-validator.js")>();
   return {
     ...actual,
-    JWTValidator: vi.fn(() => ({ validate: mockValidate })),
+    JWTValidator: vi.fn(function () {
+      return { validate: mockValidate };
+    }),
   };
 });
 
