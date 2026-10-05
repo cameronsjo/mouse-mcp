@@ -23,6 +23,7 @@
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import type { Mock } from "vitest";
 import { JWKSClient, getJWKSClient, clearAllJWKSCaches } from "./jwks.js";
 import type { JSONWebKey } from "./types.js";
 
@@ -162,9 +163,11 @@ describe("JWKSClient", () => {
     });
 
     it("aborts the fetch after the timeout elapses", async () => {
-      (global.fetch as ReturnType<typeof vi.fn>).mockImplementation(
+      (
+        global.fetch as Mock<(url: string, opts: { signal: AbortSignal }) => Promise<Response>>
+      ).mockImplementation(
         (_url: string, opts: { signal: AbortSignal }) =>
-          new Promise((_resolve, reject) => {
+          new Promise<Response>((_resolve, reject) => {
             opts.signal.addEventListener("abort", () => {
               reject(new Error("aborted"));
             });
