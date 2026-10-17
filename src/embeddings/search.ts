@@ -60,7 +60,8 @@ export async function semanticSearch<T extends DisneyEntity>(
   return withSpan(`embedding.semantic-search`, SpanOperations.EMBEDDING_SEARCH, async (span) => {
     const { limit = DEFAULT_SEARCH_LIMIT, minScore = DEFAULT_MIN_SIMILARITY_SCORE } = options;
 
-    span?.setAttribute("search.query", query);
+    // Length only: the query is free-text tool input and must not leave the process.
+    span?.setAttribute("search.query_length", query.length);
     span?.setAttribute("search.limit", limit);
     span?.setAttribute("search.min_score", minScore);
     if (options.entityType) {

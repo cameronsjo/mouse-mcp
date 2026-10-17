@@ -9,6 +9,7 @@
 import * as Sentry from "@sentry/node";
 import type { ErrorEvent, Event, NodeOptions } from "@sentry/node";
 import { afterEach, describe, expect, it } from "vitest";
+import { ALL_COLLECTION_OFF, resolveDataCollection } from "./__test-helpers__/data-collection.js";
 import { SENTRY_DATA_COLLECTION, SENTRY_PRIVACY_OPTIONS, scrubEvent } from "./sentry-privacy.js";
 
 type Transport = ReturnType<NonNullable<NodeOptions["transport"]>>;
@@ -107,8 +108,8 @@ describe("Sentry privacy options", () => {
     expect(event.request?.url).not.toContain("token=abc");
   });
 
-  it("disables stack-frame variable capture", () => {
-    expect(SENTRY_DATA_COLLECTION.stackFrameVariables).toBe(false);
+  it("resolves every data-collection category to off", async () => {
+    expect(await resolveDataCollection(SENTRY_PRIVACY_OPTIONS)).toEqual(ALL_COLLECTION_OFF);
     expect(SENTRY_PRIVACY_OPTIONS.includeLocalVariables).toBe(false);
   });
 

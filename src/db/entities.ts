@@ -306,7 +306,8 @@ export async function searchEntitiesByName<T extends DisneyEntity>(
   return withSpan("entity.search", SpanOperations.DB_QUERY, async (span) => {
     span?.setAttribute(SpanAttributes.DB_SYSTEM, "sqlite");
     span?.setAttribute(SpanAttributes.DB_OPERATION, "SELECT");
-    span?.setAttribute("search.query", query);
+    // Length only: the query is free-text tool input and must not leave the process.
+    span?.setAttribute("search.query_length", query.length);
     span?.setAttribute("search.limit", options.limit ?? 20);
 
     if (options.destinationId) {

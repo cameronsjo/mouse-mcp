@@ -1,5 +1,5 @@
 /**
- * Sentry privacy settings shared by every Sentry.init in this service.
+ * Sentry privacy settings for the service's Sentry.init.
  */
 
 import type { ErrorEvent, NodeOptions } from "@sentry/node";
@@ -25,8 +25,11 @@ export const SENTRY_DATA_COLLECTION: DataCollection = {
 };
 
 /**
- * Remove request PII from an outgoing event. `beforeSend` runs after all
- * integrations, so this catches anything `dataCollection` lets through.
+ * Remove request PII from an outgoing error event.
+ *
+ * Runs as `beforeSend`, so it covers error events only: spans and transactions
+ * never pass through it, and it leaves breadcrumbs, contexts, and other user
+ * fields alone. `dataCollection` is the control for spans.
  */
 export function scrubEvent(event: ErrorEvent): ErrorEvent {
   if (event.request) {
@@ -48,6 +51,6 @@ export function scrubEvent(event: ErrorEvent): ErrorEvent {
 export const SENTRY_PRIVACY_OPTIONS = {
   dataCollection: SENTRY_DATA_COLLECTION,
   includeLocalVariables: false,
-  // Defense in depth: strip request PII even if dataCollection misses a path.
+  // Second layer for error events: requestDataIntegration attaches scope body data regardless of httpBodies.
   beforeSend: scrubEvent,
 } satisfies NodeOptions;
