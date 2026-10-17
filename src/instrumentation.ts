@@ -10,6 +10,7 @@
  */
 
 import * as Sentry from "@sentry/node";
+import { SENTRY_PRIVACY_OPTIONS } from "./observability/sentry-privacy.js";
 
 // Environment configuration for observability
 const SENTRY_DSN = process.env.MOUSE_MCP_SENTRY_DSN;
@@ -28,6 +29,9 @@ if (SENTRY_DSN) {
     // Performance Monitoring
     tracesSampleRate: SENTRY_TRACES_SAMPLE_RATE,
 
+    // Sentry 11 requires opt-in to capture spans created through @opentelemetry/api.
+    enableOpenTelemetrySetup: true,
+
     // Environment identification
     environment: NODE_ENV,
     release: `${SERVICE_NAME}@${SERVICE_VERSION}`,
@@ -41,19 +45,8 @@ if (SENTRY_DSN) {
     // Enable debug logging in development
     debug: NODE_ENV === "development" && process.env.MOUSE_MCP_SENTRY_DEBUG === "true",
 
-    // Filter out sensitive data
-    beforeSend(event) {
-      // Remove any potential PII from the event
-      if (event.request?.cookies) {
-        event.request.cookies = {};
-      }
-      if (event.request?.headers) {
-        // Remove auth headers
-        delete event.request.headers.authorization;
-        delete event.request.headers.cookie;
-      }
-      return event;
-    },
+    // Collect no request PII (see SENTRY_PRIVACY_OPTIONS)
+    ...SENTRY_PRIVACY_OPTIONS,
 
     // Filter breadcrumbs
     beforeBreadcrumb(breadcrumb) {
@@ -67,9 +60,6 @@ if (SENTRY_DSN) {
 
   // Set default tags for all events
   Sentry.setTag("service", SERVICE_NAME);
-
-  // Validate OpenTelemetry setup
-  Sentry.validateOpenTelemetrySetup();
 } else if (NODE_ENV === "production") {
   process.stderr.write(
     "[instrumentation] MOUSE_MCP_SENTRY_DSN not set - Sentry disabled in production\n"
