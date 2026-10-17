@@ -15,6 +15,7 @@ import { getNodeAutoInstrumentations } from "@opentelemetry/auto-instrumentation
 import { trace, context, type Span, type Tracer } from "@opentelemetry/api";
 import * as Sentry from "@sentry/node";
 import { SENTRY_FLUSH_TIMEOUT_MS } from "../shared/constants.js";
+import { SENTRY_PRIVACY_OPTIONS } from "./sentry-privacy.js";
 
 let sdk: NodeSDK | null = null;
 let isInitialized = false;
@@ -51,6 +52,8 @@ export function initializeObservability(): void {
       tracesSampleRate: environment === "production" ? 0.1 : 1.0,
       // Enable debug logging in development
       debug: environment === "development",
+      // Collect no request PII
+      ...SENTRY_PRIVACY_OPTIONS,
     });
   } else {
     console.log("[Observability] No SENTRY_DSN configured - tracing will not be exported");
