@@ -46,123 +46,134 @@ const SERVER_NAME = "disney-parks";
 const SERVER_VERSION = packageJson.version;
 
 /**
+ * Create a new MCP Server with all handlers registered.
+ *
+ * WHY: A Server can be connected to only one transport at a time (connect()
+ * throws "Already connected to a transport" on the second call). HTTP mode
+ * opens one transport per session, so each session needs its own Server.
+ * Shared state (cache, DB, API clients) lives in module singletons and stays
+ * shared; only this lightweight protocol object is per-session.
+ */
+// eslint-disable-next-line @typescript-eslint/no-deprecated -- Using low-level Server for fine-grained control
+export function createMcpServer(): Server {
+  // eslint-disable-next-line @typescript-eslint/no-deprecated
+  const server = new Server(
+    {
+      name: SERVER_NAME,
+      version: SERVER_VERSION,
+    },
+    {
+      capabilities: {
+        tools: {},
+        prompts: {},
+      },
+    }
+  );
+
+  registerHandlers(server);
+  server.onerror = (error) => {
+    logger.error("Server error", error);
+  };
+  return server;
+}
+
+/**
+ * Register MCP request handlers on a server instance.
+ */
+// eslint-disable-next-line @typescript-eslint/no-deprecated
+function registerHandlers(server: Server): void {
+  // List tools handler
+  server.setRequestHandler(ListToolsRequestSchema, async () => {
+    logger.debug("ListTools request");
+    return {
+      tools: getToolDefinitions(),
+    };
+  });
+
+  // Call tool handler with tracing and audit logging
+  server.setRequestHandler(CallToolRequestSchema, async (request) => {
+    const { name, arguments: args } = request.params;
+
+    return withSpan(
+      `mcp.tool.${name}`,
+      SpanOperations.MCP_TOOL_CALL,
+      async (span) => {
+        span?.setAttribute(SpanAttributes.MCP_TOOL, name);
+
+        logger.info("Tool invocation", { tool: name });
+        incrementQueryCount();
+
+        const tool = getTool(name);
+        if (!tool) {
+          logger.warn("Unknown tool requested", { tool: name });
+          return formatErrorResponse(new Error(`Unknown tool: ${name}`)) as {
+            content: Array<{ type: "text"; text: string }>;
+          };
+        }
+
+        try {
+          // Wrap handler with audit logging for automatic timing and PII sanitization
+          const auditedHandler = withAuditLogging(name, tool.handler);
+          const result = await auditedHandler(args ?? {});
+          logger.debug("Tool completed", { tool: name });
+          return result as { content: Array<{ type: "text"; text: string }> };
+        } catch (error) {
+          logger.error("Tool execution failed", error, { tool: name });
+          // Capture error in Sentry with tool context
+          Sentry.captureException(error, {
+            tags: { tool: name },
+            extra: { args },
+          });
+          return formatErrorResponse(error) as { content: Array<{ type: "text"; text: string }> };
+        }
+      },
+      { [SpanAttributes.MCP_TOOL]: name }
+    );
+  });
+
+  // List prompts handler
+  server.setRequestHandler(ListPromptsRequestSchema, async () => {
+    logger.debug("ListPrompts request");
+    return {
+      prompts: getPromptDefinitions(),
+    };
+  });
+
+  // Get prompt handler
+  server.setRequestHandler(GetPromptRequestSchema, async (request) => {
+    const { name, arguments: args } = request.params;
+    logger.debug("GetPrompt request", { prompt: name });
+
+    const result = await executePrompt(name, args ?? {});
+    if (!result) {
+      throw new Error(`Unknown prompt: ${name}`);
+    }
+
+    // Cast to SDK type - our internal type matches the SDK structure
+    return result as unknown as GetPromptResult;
+  });
+}
+
+/**
  * Disney Parks MCP Server
  *
  * Provides structured Disney park data through MCP tools.
  */
 export class DisneyMcpServer {
-  // eslint-disable-next-line @typescript-eslint/no-deprecated -- Using low-level Server for fine-grained control
-  private readonly server: Server;
+  /** MCP servers currently connected to a transport (one per HTTP session, or the stdio one). */
+  // eslint-disable-next-line @typescript-eslint/no-deprecated
+  private readonly activeServers = new Set<Server>();
   private cleanupEventHandlers?: () => void;
   private httpServer?: HttpTransportServer;
 
   constructor() {
-    // eslint-disable-next-line @typescript-eslint/no-deprecated
-    this.server = new Server(
-      {
-        name: SERVER_NAME,
-        version: SERVER_VERSION,
-      },
-      {
-        capabilities: {
-          tools: {},
-          prompts: {},
-        },
-      }
-    );
-
-    // Configure logger to use MCP protocol for structured logging
-    // WHY: Prevents double-serialized JSON in MCP inspector
-    setMcpServer(this.server);
-
-    this.setupHandlers();
     this.setupErrorHandling();
-  }
-
-  /**
-   * Set up MCP request handlers.
-   */
-  private setupHandlers(): void {
-    // List tools handler
-    this.server.setRequestHandler(ListToolsRequestSchema, async () => {
-      logger.debug("ListTools request");
-      return {
-        tools: getToolDefinitions(),
-      };
-    });
-
-    // Call tool handler with tracing and audit logging
-    this.server.setRequestHandler(CallToolRequestSchema, async (request) => {
-      const { name, arguments: args } = request.params;
-
-      return withSpan(
-        `mcp.tool.${name}`,
-        SpanOperations.MCP_TOOL_CALL,
-        async (span) => {
-          span?.setAttribute(SpanAttributes.MCP_TOOL, name);
-
-          logger.info("Tool invocation", { tool: name });
-          incrementQueryCount();
-
-          const tool = getTool(name);
-          if (!tool) {
-            logger.warn("Unknown tool requested", { tool: name });
-            return formatErrorResponse(new Error(`Unknown tool: ${name}`)) as {
-              content: Array<{ type: "text"; text: string }>;
-            };
-          }
-
-          try {
-            // Wrap handler with audit logging for automatic timing and PII sanitization
-            const auditedHandler = withAuditLogging(name, tool.handler);
-            const result = await auditedHandler(args ?? {});
-            logger.debug("Tool completed", { tool: name });
-            return result as { content: Array<{ type: "text"; text: string }> };
-          } catch (error) {
-            logger.error("Tool execution failed", error, { tool: name });
-            // Capture error in Sentry with tool context
-            Sentry.captureException(error, {
-              tags: { tool: name },
-              extra: { args },
-            });
-            return formatErrorResponse(error) as { content: Array<{ type: "text"; text: string }> };
-          }
-        },
-        { [SpanAttributes.MCP_TOOL]: name }
-      );
-    });
-
-    // List prompts handler
-    this.server.setRequestHandler(ListPromptsRequestSchema, async () => {
-      logger.debug("ListPrompts request");
-      return {
-        prompts: getPromptDefinitions(),
-      };
-    });
-
-    // Get prompt handler
-    this.server.setRequestHandler(GetPromptRequestSchema, async (request) => {
-      const { name, arguments: args } = request.params;
-      logger.debug("GetPrompt request", { prompt: name });
-
-      const result = await executePrompt(name, args ?? {});
-      if (!result) {
-        throw new Error(`Unknown prompt: ${name}`);
-      }
-
-      // Cast to SDK type - our internal type matches the SDK structure
-      return result as unknown as GetPromptResult;
-    });
   }
 
   /**
    * Set up error handling and graceful shutdown.
    */
   private setupErrorHandling(): void {
-    this.server.onerror = (error) => {
-      logger.error("Server error", error);
-    };
-
     // Graceful shutdown handlers
     const shutdown = async (signal: string): Promise<void> => {
       logger.info("Shutdown signal received", { signal });
@@ -228,7 +239,15 @@ export class DisneyMcpServer {
    */
   private async runStdio(): Promise<void> {
     const transport = new StdioServerTransport();
-    await this.server.connect(transport);
+    const server = createMcpServer();
+    this.activeServers.add(server);
+
+    // Configure logger to use MCP protocol for structured logging
+    // WHY: Prevents double-serialized JSON in MCP inspector. Only stdio has a
+    // single long-lived server; HTTP sessions come and go, so HTTP logs go to stderr/file.
+    setMcpServer(server);
+
+    await server.connect(transport);
     logger.info("Disney Parks MCP server running (stdio)");
   }
 
@@ -238,9 +257,25 @@ export class DisneyMcpServer {
   private async runHttp(port: number, host: string): Promise<void> {
     this.httpServer = new HttpTransportServer();
 
-    // Set up connector to link HTTP transports to MCP server
+    // Create a fresh MCP server for every HTTP session/transport.
+    // Server.connect() chains the transport's existing onclose, so the transport
+    // closing (session end, DELETE, shutdown) tears the server down with it.
     this.httpServer.setMcpServerConnector(async (transport: StreamableHTTPServerTransport) => {
-      await this.server.connect(transport);
+      const server = createMcpServer();
+      this.activeServers.add(server);
+
+      const previousOnClose = transport.onclose;
+      transport.onclose = () => {
+        this.activeServers.delete(server);
+        previousOnClose?.();
+      };
+
+      try {
+        await server.connect(transport);
+      } catch (error) {
+        this.activeServers.delete(server);
+        throw error;
+      }
     });
 
     await this.httpServer.start(port, host);
@@ -277,7 +312,10 @@ export class DisneyMcpServer {
       closeDatabase();
 
       // Close MCP server
-      await this.server.close();
+      for (const server of this.activeServers) {
+        await server.close();
+      }
+      this.activeServers.clear();
 
       // Flush Sentry events before exit
       await Sentry.close(SENTRY_FLUSH_TIMEOUT_MS);
