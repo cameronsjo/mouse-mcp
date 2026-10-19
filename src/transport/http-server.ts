@@ -27,8 +27,16 @@ const DEFAULT_HTTP_HOST = "127.0.0.1";
 interface TransportSession {
   transport: StreamableHTTPServerTransport;
   createdAt: Date;
+  /** Epoch ms of the last request for this session (or its completion). */
+  lastActivity: number;
+  /** Requests currently being handled (e.g. an open SSE stream); never expired while > 0. */
+  inFlight: number;
   token?: ValidatedToken;
 }
+
+/** Upper bound on how often the idle-session sweep runs. */
+const MAX_SWEEP_INTERVAL_MS = 60_000;
+const MIN_SWEEP_INTERVAL_MS = 1_000;
 
 /**
  * Health check response structure.
@@ -166,6 +174,9 @@ export class HttpTransportServer {
   private readonly startTime: Date = new Date();
   private authenticator: BearerAuthenticator | null = null;
   private resourceUrl = "";
+  private sweepTimer: NodeJS.Timeout | null = null;
+  private sessionTtlMs = 0;
+  private maxSessions = 0;
 
   private mcpServerConnector: ((transport: StreamableHTTPServerTransport) => Promise<void>) | null =
     null;
@@ -204,6 +215,13 @@ export class HttpTransportServer {
       } as LogContext);
     }
 
+    // Idle-session expiry and session cap.
+    // WHY: A client that never sends DELETE (e.g. a stateless gateway opening a
+    // session per request) would otherwise leave a transport and Server behind forever.
+    this.sessionTtlMs = config.httpSessionTtlSeconds * 1000;
+    this.maxSessions = config.httpMaxSessions;
+    this.startSweep();
+
     return new Promise((resolve, reject) => {
       this.server = createServer((req, res) => {
         void this.handleRequest(req, res);
@@ -228,6 +246,8 @@ export class HttpTransportServer {
    * Stop the HTTP server.
    */
   async stop(): Promise<void> {
+    this.stopSweep();
+
     // Close all active transports
     for (const [sessionId, session] of this.transports) {
       try {
@@ -251,6 +271,86 @@ export class HttpTransportServer {
           }
         });
       });
+    }
+  }
+
+  private startSweep(): void {
+    this.stopSweep();
+    if (this.sessionTtlMs <= 0) {
+      return;
+    }
+    const interval = Math.min(
+      MAX_SWEEP_INTERVAL_MS,
+      Math.max(MIN_SWEEP_INTERVAL_MS, Math.floor(this.sessionTtlMs / 2))
+    );
+    this.sweepTimer = setInterval(() => {
+      void this.sweepIdleSessions();
+    }, interval);
+    // Never keep the process alive just for the sweep.
+    this.sweepTimer.unref();
+  }
+
+  private stopSweep(): void {
+    if (this.sweepTimer) {
+      clearInterval(this.sweepTimer);
+      this.sweepTimer = null;
+    }
+  }
+
+  /**
+   * Close sessions idle longer than the TTL.
+   * Closing the transport fires onclose, which releases the per-session MCP
+   * server and the map entry.
+   *
+   * Public so tests can trigger a sweep directly.
+   */
+  async sweepIdleSessions(): Promise<void> {
+    const cutoff = Date.now() - this.sessionTtlMs;
+    const expired = [...this.transports.entries()].filter(
+      ([, session]) => session.inFlight === 0 && session.lastActivity <= cutoff
+    );
+    for (const [sessionId] of expired) {
+      logger.info("Closing idle session", { sessionId } as LogContext);
+      await this.closeSession(sessionId);
+    }
+  }
+
+  /** Close the session's transport and make sure its map entry is gone. */
+  private async closeSession(sessionId: string): Promise<void> {
+    const session = this.transports.get(sessionId);
+    if (!session) {
+      return;
+    }
+    try {
+      await session.transport.close();
+    } catch (error) {
+      logger.error("Error closing transport", error, { sessionId } as LogContext);
+    }
+    this.transports.delete(sessionId);
+  }
+
+  /** Evict least-recently-used sessions until there is room for one more. */
+  private async makeRoomForSession(): Promise<void> {
+    if (this.maxSessions <= 0) {
+      return;
+    }
+    while (this.transports.size >= this.maxSessions) {
+      let lruId: string | null = null;
+      let lruActivity = Infinity;
+      for (const [sessionId, session] of this.transports) {
+        if (session.lastActivity < lruActivity) {
+          lruActivity = session.lastActivity;
+          lruId = sessionId;
+        }
+      }
+      if (lruId === null) {
+        return;
+      }
+      logger.warn("Session cap reached, evicting least recently used session", {
+        sessionId: lruId,
+        maxSessions: this.maxSessions,
+      } as LogContext);
+      await this.closeSession(lruId);
     }
   }
 
@@ -386,7 +486,14 @@ export class HttpTransportServer {
     if (sessionId) {
       const session = this.transports.get(sessionId);
       if (session) {
-        await session.transport.handleRequest(req, res, body);
+        session.lastActivity = Date.now();
+        session.inFlight++;
+        try {
+          await session.transport.handleRequest(req, res, body);
+        } finally {
+          session.inFlight--;
+          session.lastActivity = Date.now();
+        }
         return;
       }
 
@@ -413,6 +520,9 @@ export class HttpTransportServer {
       return;
     }
 
+    // Stay under the session cap by evicting the least recently used session
+    await this.makeRoomForSession();
+
     // Create new transport and session
     const transport = new StreamableHTTPServerTransport({
       sessionIdGenerator: () => randomUUID(),
@@ -421,6 +531,8 @@ export class HttpTransportServer {
         this.transports.set(sid, {
           transport,
           createdAt: new Date(),
+          lastActivity: Date.now(),
+          inFlight: 0,
         });
       },
     });

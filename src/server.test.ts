@@ -8,7 +8,7 @@
  * socket; the Disney clients, DB, and event wiring are mocked (no network).
  */
 
-import { describe, it, expect, beforeAll, afterAll, vi } from "vitest";
+import { describe, it, expect, beforeAll, afterAll, afterEach, vi } from "vitest";
 import type { AddressInfo } from "node:net";
 
 vi.mock("./clients/index.js", () => ({
@@ -31,6 +31,7 @@ vi.mock("./events/index.js", () => ({
 }));
 
 import { DisneyMcpServer } from "./server.js";
+import { resetConfig } from "./config/index.js";
 import { getToolDefinitions } from "./tools/index.js";
 
 const MCP_HEADERS = {
@@ -131,6 +132,16 @@ describe("DisneyMcpServer HTTP sessions", () => {
     expect(httpServer.getActiveSessionCount()).toBe(2);
   });
 
+  it("handles two sessions whose initialize requests are in flight together", async () => {
+    const [first, second] = await Promise.all([
+      openSessionAndListTools(baseUrl),
+      openSessionAndListTools(baseUrl),
+    ]);
+
+    expect(first.length).toBeGreaterThan(0);
+    expect(second).toEqual(first);
+  });
+
   it("releases the per-session MCP server when the session ends", async () => {
     const before = httpServer.getActiveSessionCount();
     const init = await rpc(baseUrl, {
@@ -156,5 +167,132 @@ describe("DisneyMcpServer HTTP sessions", () => {
 
     expect(httpServer.getActiveSessionCount()).toBe(before);
     expect(active.size).toBe(serversWhileOpen - 1);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Idle expiry and session cap
+// ---------------------------------------------------------------------------
+
+const INIT_MESSAGE = {
+  jsonrpc: "2.0",
+  id: 1,
+  method: "initialize",
+  params: {
+    protocolVersion: "2025-03-26",
+    capabilities: {},
+    clientInfo: { name: "test-client", version: "0.0.0" },
+  },
+};
+
+interface Harness {
+  server: DisneyMcpServer;
+  baseUrl: string;
+  activeServers: Set<unknown>;
+  sessionCount(): number;
+  stop(): Promise<void>;
+}
+
+/** Start an HTTP server with the given env; only interval timers and Date are faked. */
+async function startHarness(env: Record<string, string>): Promise<Harness> {
+  vi.useFakeTimers({ toFake: ["setInterval", "clearInterval", "Date"] });
+  for (const [key, value] of Object.entries(env)) {
+    process.env[key] = value;
+  }
+  resetConfig();
+
+  const server = new DisneyMcpServer();
+  const internals = server as unknown as {
+    runHttp(p: number, h: string): Promise<void>;
+    httpServer: {
+      getActiveSessionCount(): number;
+      server: { address(): AddressInfo };
+      stop(): Promise<void>;
+    };
+    activeServers: Set<unknown>;
+  };
+  await internals.runHttp(0, "127.0.0.1");
+  return {
+    server,
+    baseUrl: `http://127.0.0.1:${internals.httpServer.server.address().port}`,
+    activeServers: internals.activeServers,
+    sessionCount: () => internals.httpServer.getActiveSessionCount(),
+    stop: () => internals.httpServer.stop(),
+  };
+}
+
+async function openSession(baseUrl: string): Promise<string> {
+  const init = await rpc(baseUrl, INIT_MESSAGE);
+  expect(init.status).toBe(200);
+  return init.sessionId!;
+}
+
+async function listTools(baseUrl: string, sessionId: string): Promise<number> {
+  const res = await rpc(baseUrl, { jsonrpc: "2.0", id: 2, method: "tools/list" }, sessionId);
+  return res.status;
+}
+
+describe("DisneyMcpServer HTTP session expiry", () => {
+  let harness: Harness | undefined;
+
+  afterEach(async () => {
+    await harness?.stop();
+    harness = undefined;
+    delete process.env.MOUSE_MCP_HTTP_SESSION_TTL_SECONDS;
+    delete process.env.MOUSE_MCP_HTTP_MAX_SESSIONS;
+    resetConfig();
+    vi.useRealTimers();
+  });
+
+  it("closes an idle session after the TTL and releases its server, but keeps an active one", async () => {
+    harness = await startHarness({
+      MOUSE_MCP_HTTP_SESSION_TTL_SECONDS: "60",
+      MOUSE_MCP_HTTP_MAX_SESSIONS: "0",
+    });
+    const { baseUrl } = harness;
+
+    const idle = await openSession(baseUrl);
+    const active = await openSession(baseUrl);
+    expect(harness.sessionCount()).toBe(2);
+    expect(harness.activeServers.size).toBe(2);
+
+    await vi.advanceTimersByTimeAsync(30_000);
+    expect(await listTools(baseUrl, active)).toBe(200); // refreshes `active` at t=30s
+
+    await vi.advanceTimersByTimeAsync(40_000); // t=70s: `idle` is 70s old, `active` 40s
+    expect(harness.sessionCount()).toBe(1);
+    expect(harness.activeServers.size).toBe(1);
+    expect(await listTools(baseUrl, idle)).toBe(404);
+    expect(await listTools(baseUrl, active)).toBe(200);
+
+    await vi.advanceTimersByTimeAsync(120_000); // `active` now idle past the TTL too
+    expect(harness.sessionCount()).toBe(0);
+    expect(harness.activeServers.size).toBe(0);
+  });
+
+  it("evicts the least recently used session when the cap is exceeded", async () => {
+    harness = await startHarness({
+      MOUSE_MCP_HTTP_SESSION_TTL_SECONDS: "0",
+      MOUSE_MCP_HTTP_MAX_SESSIONS: "3",
+    });
+    const { baseUrl } = harness;
+
+    const s1 = await openSession(baseUrl);
+    await vi.advanceTimersByTimeAsync(1_000);
+    const s2 = await openSession(baseUrl);
+    await vi.advanceTimersByTimeAsync(1_000);
+    const s3 = await openSession(baseUrl);
+    await vi.advanceTimersByTimeAsync(1_000);
+    expect(await listTools(baseUrl, s1)).toBe(200); // s2 is now the least recently used
+    await vi.advanceTimersByTimeAsync(1_000);
+
+    const s4 = await openSession(baseUrl);
+
+    expect(harness.sessionCount()).toBe(3);
+    expect(harness.activeServers.size).toBe(3);
+    expect(await listTools(baseUrl, s2)).toBe(404);
+    expect(await listTools(baseUrl, s1)).toBe(200);
+    expect(await listTools(baseUrl, s3)).toBe(200);
+    expect(await listTools(baseUrl, s4)).toBe(200);
   });
 });

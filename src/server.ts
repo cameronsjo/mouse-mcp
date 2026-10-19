@@ -274,6 +274,7 @@ export class DisneyMcpServer {
         await server.connect(transport);
       } catch (error) {
         this.activeServers.delete(server);
+        void transport.close();
         throw error;
       }
     });
@@ -312,9 +313,7 @@ export class DisneyMcpServer {
       closeDatabase();
 
       // Close MCP server
-      for (const server of this.activeServers) {
-        await server.close();
-      }
+      await Promise.allSettled([...this.activeServers].map((server) => server.close()));
       this.activeServers.clear();
 
       // Flush Sentry events before exit
