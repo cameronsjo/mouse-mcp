@@ -24,6 +24,19 @@ mouse-mcp uses environment variables for configuration. All application-specific
 | `MOUSE_MCP_HEADLESS` | `true` | Run Playwright browser in headless mode |
 | `MOUSE_MCP_REFRESH_BUFFER` | `60` | Session refresh buffer in minutes |
 
+### HTTP Transport Settings
+
+Only used when `MOUSE_MCP_TRANSPORT=http`. Each HTTP session gets its own MCP server object; these settings bound how many live at once.
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `MOUSE_MCP_HTTP_SESSION_TTL_SECONDS` | `600` | Close a session after this many seconds with no requests (an open stream counts as a request in progress). `0` disables expiry |
+| `MOUSE_MCP_HTTP_MAX_SESSIONS` | `100` | Maximum live sessions. When a new session would exceed it, the least recently used idle session is closed first; if every session is busy, the new session is refused with HTTP 503 and `Retry-After: 5`. `0` disables the cap |
+
+Clients that never send `DELETE` (for example a stateless gateway that opens a session per request) rely on these limits to release sessions. Invalid values fall back to the defaults.
+
+In HTTP mode, logs go to stderr and the log file only. The MCP logging channel (`sendLoggingMessage`) is used in stdio mode, where one server lives for the whole process.
+
 ### Embedding Settings
 
 | Variable | Default | Description |

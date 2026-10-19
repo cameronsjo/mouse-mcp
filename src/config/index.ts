@@ -59,6 +59,10 @@ export interface Config {
   readonly httpPort: number;
   /** HTTP server host (only used when transport=http) */
   readonly httpHost: string;
+  /** Close HTTP sessions idle longer than this many seconds; 0 disables expiry */
+  readonly httpSessionTtlSeconds: number;
+  /** Maximum live HTTP sessions; the least recently used is closed beyond this; 0 disables the cap */
+  readonly httpMaxSessions: number;
   /** OAuth 2.1 authentication configuration */
   readonly oauth: OAuthConfig;
 }
@@ -123,11 +127,33 @@ export function getConfig(): Config {
     transport: parseTransportMode(process.env.MOUSE_MCP_TRANSPORT),
     httpPort: parseInt(process.env.MOUSE_MCP_PORT ?? "3000", 10),
     httpHost: process.env.MOUSE_MCP_HOST ?? "127.0.0.1",
+    httpSessionTtlSeconds: parseNonNegativeInt(
+      process.env.MOUSE_MCP_HTTP_SESSION_TTL_SECONDS,
+      DEFAULT_HTTP_SESSION_TTL_SECONDS
+    ),
+    httpMaxSessions: parseNonNegativeInt(
+      process.env.MOUSE_MCP_HTTP_MAX_SESSIONS,
+      DEFAULT_HTTP_MAX_SESSIONS
+    ),
     // OAuth configuration
     oauth: parseOAuthConfig(),
   };
 
   return cachedConfig;
+}
+
+const DEFAULT_HTTP_SESSION_TTL_SECONDS = 600;
+const DEFAULT_HTTP_MAX_SESSIONS = 100;
+
+/**
+ * Parse a non-negative integer from environment, falling back on missing or invalid input.
+ */
+function parseNonNegativeInt(value: string | undefined, fallback: number): number {
+  if (value === undefined || value.trim() === "") {
+    return fallback;
+  }
+  const parsed = Number.parseInt(value, 10);
+  return Number.isFinite(parsed) && parsed >= 0 ? parsed : fallback;
 }
 
 /**
