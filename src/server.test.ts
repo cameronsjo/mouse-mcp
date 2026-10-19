@@ -190,6 +190,7 @@ interface Harness {
   baseUrl: string;
   activeServers: Set<unknown>;
   sessionCount(): number;
+  inFlightCount(): number;
   stop(): Promise<void>;
 }
 
@@ -208,6 +209,7 @@ async function startHarness(env: Record<string, string>): Promise<Harness> {
       getActiveSessionCount(): number;
       server: { address(): AddressInfo };
       stop(): Promise<void>;
+      transports: Map<string, { inFlight: number }>;
     };
     activeServers: Set<unknown>;
   };
@@ -217,6 +219,8 @@ async function startHarness(env: Record<string, string>): Promise<Harness> {
     baseUrl: `http://127.0.0.1:${internals.httpServer.server.address().port}`,
     activeServers: internals.activeServers,
     sessionCount: () => internals.httpServer.getActiveSessionCount(),
+    inFlightCount: () =>
+      [...internals.httpServer.transports.values()].reduce((sum, t) => sum + t.inFlight, 0),
     stop: () => internals.httpServer.stop(),
   };
 }
@@ -294,5 +298,83 @@ describe("DisneyMcpServer HTTP session expiry", () => {
     expect(await listTools(baseUrl, s1)).toBe(200);
     expect(await listTools(baseUrl, s3)).toBe(200);
     expect(await listTools(baseUrl, s4)).toBe(200);
+  });
+
+  /** Open the standalone GET stream; the server counts it as an in-flight request until aborted. */
+  async function holdStreamOpen(baseUrl: string, sessionId: string): Promise<AbortController> {
+    const controller = new AbortController();
+    const res = await fetch(`${baseUrl}/mcp`, {
+      method: "GET",
+      headers: { Accept: "text/event-stream", "mcp-session-id": sessionId },
+      signal: controller.signal,
+    });
+    expect(res.status).toBe(200);
+    return controller;
+  }
+
+  /** Real-time poll (setTimeout is not faked) until the server sees the session as idle. */
+  async function waitUntilIdle(h: Harness): Promise<void> {
+    for (let i = 0; i < 100; i++) {
+      if (h.inFlightCount() === 0) {
+        return;
+      }
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    }
+    throw new Error("session never became idle");
+  }
+
+  it("does not expire a session with a request in flight, even past the TTL", async () => {
+    harness = await startHarness({
+      MOUSE_MCP_HTTP_SESSION_TTL_SECONDS: "60",
+      MOUSE_MCP_HTTP_MAX_SESSIONS: "0",
+    });
+    const { baseUrl } = harness;
+    const held = await openSession(baseUrl);
+    const stream = await holdStreamOpen(baseUrl, held);
+    expect(harness.inFlightCount()).toBe(1);
+
+    await vi.advanceTimersByTimeAsync(300_000);
+    expect(harness.sessionCount()).toBe(1);
+    expect(harness.activeServers.size).toBe(1);
+
+    // Once the stream ends the session is idle again and the next sweep expires it.
+    stream.abort();
+    await waitUntilIdle(harness);
+    await vi.advanceTimersByTimeAsync(120_000);
+    expect(harness.sessionCount()).toBe(0);
+  });
+
+  it("refuses a new session with 503 when the cap is reached and every session is busy", async () => {
+    harness = await startHarness({
+      MOUSE_MCP_HTTP_SESSION_TTL_SECONDS: "0",
+      MOUSE_MCP_HTTP_MAX_SESSIONS: "1",
+    });
+    const { baseUrl } = harness;
+    const held = await openSession(baseUrl);
+    const stream = await holdStreamOpen(baseUrl, held);
+
+    const refused = await fetch(`${baseUrl}/mcp`, {
+      method: "POST",
+      headers: MCP_HEADERS,
+      body: JSON.stringify(INIT_MESSAGE),
+    });
+    expect(refused.status).toBe(503);
+    expect(refused.headers.get("retry-after")).toBe("5");
+    const body = (await refused.json()) as { jsonrpc: string; error: { code: number } };
+    expect(body.jsonrpc).toBe("2.0");
+    expect(body.error.code).toBe(-32000);
+    expect(harness.sessionCount()).toBe(1);
+    expect(harness.activeServers.size).toBe(1);
+
+    // The held session was left alone and still serves requests.
+    expect(await listTools(baseUrl, held)).toBe(200);
+
+    // Once it is idle, a new session evicts it.
+    stream.abort();
+    await waitUntilIdle(harness);
+    const next = await openSession(baseUrl);
+    expect(harness.sessionCount()).toBe(1);
+    expect(await listTools(baseUrl, held)).toBe(404);
+    expect(await listTools(baseUrl, next)).toBe(200);
   });
 });

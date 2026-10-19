@@ -310,6 +310,11 @@ export class HttpTransportServer {
       ([, session]) => session.inFlight === 0 && session.lastActivity <= cutoff
     );
     for (const [sessionId] of expired) {
+      // A request may have arrived during an earlier await; recheck before closing.
+      const current = this.transports.get(sessionId);
+      if (!current || current.inFlight > 0 || current.lastActivity > cutoff) {
+        continue;
+      }
       logger.info("Closing idle session", { sessionId } as LogContext);
       await this.closeSession(sessionId);
     }
@@ -329,29 +334,36 @@ export class HttpTransportServer {
     this.transports.delete(sessionId);
   }
 
-  /** Evict least-recently-used sessions until there is room for one more. */
-  private async makeRoomForSession(): Promise<void> {
+  /**
+   * Evict least-recently-used idle sessions until there is room for one more.
+   * Sessions with a request in flight are never evicted: closing them would cut
+   * off an open stream or a running tool call.
+   *
+   * @returns false when the cap is reached and every session is busy
+   */
+  private async makeRoomForSession(): Promise<boolean> {
     if (this.maxSessions <= 0) {
-      return;
+      return true;
     }
     while (this.transports.size >= this.maxSessions) {
       let lruId: string | null = null;
       let lruActivity = Infinity;
       for (const [sessionId, session] of this.transports) {
-        if (session.lastActivity < lruActivity) {
+        if (session.inFlight === 0 && session.lastActivity < lruActivity) {
           lruActivity = session.lastActivity;
           lruId = sessionId;
         }
       }
       if (lruId === null) {
-        return;
+        return false;
       }
-      logger.warn("Session cap reached, evicting least recently used session", {
+      logger.warn("Session cap reached, evicting least recently used idle session", {
         sessionId: lruId,
         maxSessions: this.maxSessions,
       } as LogContext);
       await this.closeSession(lruId);
     }
+    return true;
   }
 
   /**
@@ -520,8 +532,14 @@ export class HttpTransportServer {
       return;
     }
 
-    // Stay under the session cap by evicting the least recently used session
-    await this.makeRoomForSession();
+    // Stay under the session cap by evicting the least recently used idle session
+    if (!(await this.makeRoomForSession())) {
+      logger.warn("Session cap reached and every session is busy; refusing new session", {
+        maxSessions: this.maxSessions,
+      } as LogContext);
+      this.sendError(res, 503, "Too many active sessions, retry later", { "Retry-After": "5" });
+      return;
+    }
 
     // Create new transport and session
     const transport = new StreamableHTTPServerTransport({
@@ -594,8 +612,13 @@ export class HttpTransportServer {
   /**
    * Send error response.
    */
-  private sendError(res: ServerResponse, code: number, message: string): void {
-    res.writeHead(code, { "Content-Type": "application/json" });
+  private sendError(
+    res: ServerResponse,
+    code: number,
+    message: string,
+    headers: Record<string, string> = {}
+  ): void {
+    res.writeHead(code, { "Content-Type": "application/json", ...headers });
     res.end(
       JSON.stringify({
         jsonrpc: "2.0",
